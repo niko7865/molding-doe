@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { analyzeSeries, confirmStudy, seriesList } from './analysis'
 import { DEMO_MODEL, demoStudy } from './demo'
 import { parseStudy, serializeStudy } from './file'
+import { GUIDE_STUDIES, statusOf } from '../guide/info'
+import { gateSeal, processWindow, viscosityCurve } from '../guide/studies'
 
 describe('demo study', () => {
   const s = demoStudy(new Date('2026-01-01T00:00:00Z'))
@@ -24,5 +26,14 @@ describe('demo study', () => {
     expect(DEMO_MODEL.flash(s.analysis!.optimum!)).toBeLessThan(2)
     const results = confirmStudy(s)
     expect(results.map((r) => r.check?.inside)).toEqual([true, true, true])
+  })
+
+  it('has every pre-DOE study done, agreeing with the DOE ranges', () => {
+    expect(GUIDE_STUDIES.map((g) => statusOf(s, g.key))).toEqual(new Array(6).fill('done'))
+    expect(viscosityCurve(s.guide!.viscosity!).flatFrom).not.toBeNull()
+    expect(gateSeal(s.guide!.gateSeal!).sealTime).toBe(5)
+    const w = processWindow(s.guide!.window!)
+    expect(w.melt).toEqual([230, 260])
+    expect(w.hold).toEqual([450, 650])
   })
 })
