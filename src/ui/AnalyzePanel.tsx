@@ -114,7 +114,7 @@ function TermPicker({ a, names, ws }: { a: SeriesAnalysis; names: string[]; ws: 
   )
 }
 
-function AnovaTable({ fit }: { fit: Fit }) {
+export function AnovaTable({ fit }: { fit: Fit }) {
   const a = fit.anova
   const rows: (AnovaRow & { indent?: boolean })[] = [
     ...(a.blocks ? [a.blocks] : []),
@@ -156,7 +156,7 @@ function AnovaTable({ fit }: { fit: Fit }) {
   )
 }
 
-function CoefficientTable({ fit, twoLevel }: { fit: Fit; twoLevel: boolean }) {
+export function CoefficientTable({ fit, twoLevel }: { fit: Fit; twoLevel: boolean }) {
   return (
     <div className="table-wrap">
       <table>
@@ -188,7 +188,7 @@ function CoefficientTable({ fit, twoLevel }: { fit: Fit; twoLevel: boolean }) {
   )
 }
 
-function EffectCharts({ a, study, names }: { a: SeriesAnalysis; study: Study; names: string[] }) {
+export function EffectCharts({ a, study, names }: { a: SeriesAnalysis; study: Study; names: string[] }) {
   // Judge every candidate term, not just the kept ones, so the user sees what was dropped and why.
   const full = useMemo(
     () => fitModel({ x: a.data.x, y: a.data.y, terms: a.candidates, blocks: a.data.blocks, factorNames: names }),
@@ -243,7 +243,7 @@ function EffectCharts({ a, study, names }: { a: SeriesAnalysis; study: Study; na
   )
 }
 
-function FactorPlots({ a, study }: { a: SeriesAnalysis; study: Study }) {
+export function FactorPlots({ a, study, forReport }: { a: SeriesAnalysis; study: Study; forReport?: boolean }) {
   const factors = designFactors(study)
   const k = factors.length
   const quadratic = a.fit.terms.some((t) => t.some((v) => v > 1))
@@ -279,7 +279,7 @@ function FactorPlots({ a, study }: { a: SeriesAnalysis; study: Study }) {
     return formatValue((f.low + f.high) / 2 + (coded * (f.high - f.low)) / 2, f.quantity, study, false)
   }
   const pairSelect = (value: [number, number], set: (v: [number, number]) => void, labels: [string, string]) => (
-    <div className="row">
+    <div className="row no-print">
       {[0, 1].map((side) => (
         <label key={side} className="field">
           <span>{labels[side]}</span>
@@ -320,14 +320,14 @@ function FactorPlots({ a, study }: { a: SeriesAnalysis; study: Study }) {
           </div>
         </div>
       )}
-      {quadratic && k >= 2 && (
+      {quadratic && k >= 2 && !forReport && (
         <SurfaceChart title="Response surface" predict={surfacePredict} xRange={region.bounds[ax]} yRange={region.bounds[ay]} xLabel={factors[ax].name} yLabel={factors[ay].name} />
       )}
     </>
   )
 }
 
-function ResidualPlots({ a }: { a: SeriesAnalysis }) {
+export function ResidualPlots({ a, forReport }: { a: SeriesAnalysis; forReport?: boolean }) {
   const fit = a.fit
   if (fit.dfError < 1) return <p className="muted">The model uses every degree of freedom, so there are no residuals to check.</p>
   const order = a.data.runs.map((r) => r.order)
@@ -348,7 +348,7 @@ function ResidualPlots({ a }: { a: SeriesAnalysis }) {
           yLabel="Normal quantile"
         />
         <ScatterChart title="Residuals vs fitted" points={fit.residuals.map((r, i) => ({ x: fit.fitted[i], y: r, label: label(i), highlight: true }))} xLabel="Fitted value" yLabel="Residual" zeroLine />
-        <ScatterChart title="Residuals vs run order" points={fit.residuals.map((r, i) => ({ x: order[i], y: r, label: label(i), highlight: true }))} xLabel="Run order" yLabel="Residual" zeroLine />
+        {!forReport && <ScatterChart title="Residuals vs run order" points={fit.residuals.map((r, i) => ({ x: order[i], y: r, label: label(i), highlight: true }))} xLabel="Run order" yLabel="Residual" zeroLine />}
       </div>
     </>
   )
@@ -402,14 +402,15 @@ function ModelView({ study, ws, seriesKey, setSeriesKey }: { study: Study; ws: W
   )
 }
 
-function ModelSummary({ a, names, ws, study }: { a: SeriesAnalysis; names: string[]; ws: Workspace; study: Study }) {
+export function ModelSummary({ a, names, ws, study }: { a: SeriesAnalysis; names: string[]; ws?: Workspace; study: Study }) {
   const fit = a.fit
   const settings = settingsFor(study, a.series.key)
   const twoLevel = fit.coefficients.every((c) => !c.term || c.effect !== null)
   const sp = a.splitPlot
   return (
     <>
-      {!settings.auto && <TermPicker a={a} names={names} ws={ws} />}
+      {!settings.auto && ws && <TermPicker a={a} names={names} ws={ws} />}
+      {!settings.auto && !ws && <p className="small">Terms chosen by hand.</p>}
       <dl className="stats">
         <div>
           <dt>Runs</dt>
