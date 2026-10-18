@@ -1,3 +1,5 @@
+import type { BaseDesign } from './types'
+
 /**
  * Coded design matrix for a 2^k full factorial in standard (Yates) order.
  * Row i, column j is -1 or +1; the first factor alternates fastest.
@@ -9,4 +11,13 @@ export function fullFactorial(k: number): number[][] {
     rows.push(Array.from({ length: k }, (_, j) => ((i >> j) & 1 ? 1 : -1)))
   }
   return rows
+}
+
+export function fullFactorialDesign(k: number): BaseDesign {
+  return {
+    type: 'full-factorial',
+    k,
+    points: fullFactorial(k).map((coded) => ({ coded, kind: 'factorial' })),
+    resolution: Infinity,
+  }
 }
