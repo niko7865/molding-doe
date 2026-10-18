@@ -81,6 +81,31 @@ export const runSchema = z.object({
   wholePlot: z.number().int().positive().optional(),
 })
 
+const goalSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('none') }),
+  z.object({ kind: z.literal('maximize'), low: z.number(), high: z.number() }),
+  z.object({ kind: z.literal('minimize'), low: z.number(), high: z.number() }),
+  z.object({ kind: z.literal('target'), low: z.number(), target: z.number(), high: z.number() }),
+])
+
+/** Per analyzed series (see analysis.ts series keys): model choices and optimizer goal. */
+export const seriesSettingsSchema = z.object({
+  /** Pick terms automatically (backward elimination); otherwise use `terms`. */
+  auto: z.boolean(),
+  /** Term keys ("1,0,1") chosen by hand. */
+  terms: z.array(z.string()).optional(),
+  goal: goalSchema.optional(),
+  importance: z.number().min(1).max(5).optional(),
+})
+
+export const analysisSchema = z.object({
+  series: z.record(z.string(), seriesSettingsSchema),
+  /** Chosen setpoint, coded in design.factorIds order. */
+  optimum: z.array(z.number()).optional(),
+  /** Confirmation results: series key → one value per confirmation run. */
+  confirmation: z.object({ runs: z.number().int().min(1), values: z.record(z.string(), z.array(z.number().nullable())) }).optional(),
+})
+
 /** How the runs were generated, so they can be explained, analyzed and regenerated. */
 export const designSpecSchema = z.object({
   type: z.enum(['full-factorial', 'fractional-factorial', 'plackett-burman', 'box-behnken', 'central-composite']),
@@ -112,6 +137,7 @@ export const studySchema = z.object({
   responses: z.array(responseSchema),
   /** Set once runs are generated. */
   design: designSpecSchema.optional(),
+  analysis: analysisSchema.optional(),
   runs: z.array(runSchema),
 })
 
@@ -120,6 +146,8 @@ export type Factor = z.infer<typeof factorSchema>
 export type Response = z.infer<typeof responseSchema>
 export type Run = z.infer<typeof runSchema>
 export type DesignSpec = z.infer<typeof designSpecSchema>
+export type SeriesSettings = z.infer<typeof seriesSettingsSchema>
+export type Analysis = z.infer<typeof analysisSchema>
 export type Study = z.infer<typeof studySchema>
 
 export function newId(): string {
