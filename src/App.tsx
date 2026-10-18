@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { SECTIONS, type SectionId } from './app/sections'
+import { useWorkspace } from './study/useWorkspace'
+import { StudyPanel } from './ui/StudyPanel'
 
 function App() {
+  const ws = useWorkspace()
   const [active, setActive] = useState<SectionId>('study')
   const section = SECTIONS.find((s) => s.id === active)!
 
@@ -9,6 +12,7 @@ function App() {
     <div className="shell">
       <header className="topbar">
         <h1>Molding DOE</h1>
+        {ws.study && <span className="muted">{ws.study.name || 'Untitled study'}</span>}
       </header>
       <nav className="steps" aria-label="Workflow">
         {SECTIONS.map((s, i) => (
@@ -23,10 +27,16 @@ function App() {
           </button>
         ))}
       </nav>
-      <main className="panel">
-        <h2>{section.label}</h2>
-        <p>{section.summary}</p>
-        <p className="muted">Not built yet.</p>
+      <main>
+        {active === 'study' ? (
+          <StudyPanel ws={ws} />
+        ) : (
+          <section className="card">
+            <h2>{section.label}</h2>
+            <p>{section.summary}</p>
+            <p className="muted">{ws.study ? 'Not built yet.' : 'Start or open a study first.'}</p>
+          </section>
+        )}
       </main>
     </div>
   )
