@@ -19,4 +19,6 @@ Pushes to `main` deploy to GitHub Pages at https://niko7865.github.io/molding-do
 ## Layout
 
 - `src/stats/` - the statistics engine (design generation, regression, ANOVA). Pure TypeScript with no UI imports, tested against textbook examples.
+- `src/study/` - the study file: schema, units, factor presets and press limits, save/open, merge of tablet results, and the browser's auto-saved working copies.
+- `src/ui/` - React components.
 - `src/app/` - app-level structure shared by the UI.
