@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 const quantity = z.enum([
   'temperature',
@@ -139,8 +139,13 @@ export const guideSchema = z.object({
       rows: z.array(z.object({ time: num, value: num })),
     })
     .optional(),
+  /** Hold pressure against melt or mold temperature; `temp` in each row is the chosen temperature. */
   window: z
-    .object({ ...guideBase, rows: z.array(z.object({ melt: num, hold: num, outcome: z.enum(['good', 'short', 'flash', 'sink', 'other']) })) })
+    .object({
+      ...guideBase,
+      temperature: z.enum(['melt', 'mold']),
+      rows: z.array(z.object({ temp: num, hold: num, outcome: z.enum(['good', 'short', 'flash', 'sink', 'other']) })),
+    })
     .optional(),
 })
 

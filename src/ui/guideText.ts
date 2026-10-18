@@ -32,8 +32,8 @@ export function guideSummary(study: Study, key: GuideKey): string {
     }
     case 'window': {
       const r = processWindow(g!.window!)
-      return r.melt && r.hold
-        ? `Good parts from ${formatValue(r.melt[0], 'temperature', study)} to ${formatValue(r.melt[1], 'temperature', study)} and ${pressureText(r.hold[0], study)} to ${pressureText(r.hold[1], study)}.`
+      return r.temp && r.hold
+        ? `Good parts from ${formatValue(r.temp[0], 'temperature', study)} to ${formatValue(r.temp[1], 'temperature', study)} ${g!.window!.temperature} temperature and ${pressureText(r.hold[0], study)} to ${pressureText(r.hold[1], study)} hold pressure.`
         : 'Not enough good settings to define a window.'
     }
   }

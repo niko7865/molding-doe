@@ -28,7 +28,7 @@ Repo: `niko7865/molding-doe` (React and TypeScript, hosted on GitHub Pages, inst
 ## Factors, machines and units *(Q14)*
 
 - **Preset factor library:** melt temp, mold temp, injection speed, hold pressure, hold time, cooling time, back pressure and screw RPM, each with units and default ranges. Custom factors can be added.
-- **Units:** a metric/imperial switch. Values are stored in SI and converted for display.
+- **Units:** pressures always show in psi, clamp force in US tons and temperatures in °F, because that is how the plant's presses are set up. A metric/imperial switch changes part weights and dimensions, speeds and volumes (g, mm, mm/s, cm³ or oz, in, in/s, in³). Values are stored in metric (bar, kN, °C, …) and converted for display.
 - **Machine profiles:** limits for each press (maximum injection pressure, shot size, speed, clamp tonnage). The design builder warns when any run exceeds them.
 
 ## Scientific molding studies (primary workflow) *(Q4, Q11, Q21)*
@@ -40,7 +40,7 @@ The six studies set the process from the plastic’s point of view and are run i
 3. **Pressure-drop study:** pressure at each flow segment vs. the machine maximum, flagging if pressure-limited.
 4. **Gate seal:** part weight vs. hold time, suggesting the seal time plus a margin.
 5. **Cooling time:** a critical dimension or quality measure vs. cooling time.
-6. **Process window:** hold pressure vs. melt temp, plotting the good/bad region.
+6. **Process window:** hold pressure vs. melt or mold temperature (the user picks which), plotting the good/bad region.
 
 ## DOE builder (optional stage)
 

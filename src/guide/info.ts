@@ -35,8 +35,8 @@ export const GUIDE_STUDIES: { key: GuideKey; title: string; why: string; how: st
   {
     key: 'window',
     title: 'Process window',
-    why: 'Maps where hold pressure and melt temperature make good parts, so the process sits well inside a workable region with room to drift.',
-    how: 'Run a grid of melt temperature and hold pressure settings and judge each: good, short, flash, sink or another defect.',
+    why: 'Maps where hold pressure and melt (or mold) temperature make good parts, so the process sits well inside a workable region with room to drift.',
+    how: 'Pick melt or mold temperature, run a grid of that temperature and hold pressure, and judge each setting: good, short, flash, sink or another defect.',
   },
 ]
 

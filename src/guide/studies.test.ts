@@ -73,27 +73,27 @@ describe('process window', () => {
   it('boxes the good settings, shrinking the box to leave defects out', () => {
     const r = processWindow({
       rows: [
-        { melt: 230, hold: 400, outcome: 'short' },
-        { melt: 240, hold: 500, outcome: 'good' },
-        { melt: 250, hold: 600, outcome: 'good' },
-        { melt: 245, hold: 550, outcome: 'sink' },
-        { melt: 260, hold: 700, outcome: 'flash' },
+        { temp: 230, hold: 400, outcome: 'short' },
+        { temp: 240, hold: 500, outcome: 'good' },
+        { temp: 250, hold: 600, outcome: 'good' },
+        { temp: 245, hold: 550, outcome: 'sink' },
+        { temp: 260, hold: 700, outcome: 'flash' },
       ],
     })
     // The sink at (245, 550) sits inside the 240–250 / 500–600 box; every side pull keeps one good point.
     expect(r.trimmed).toBe(true)
-    expect(r.melt === null || r.hold === null).toBe(true)
+    expect(r.temp === null || r.hold === null).toBe(true)
   })
 
   it('trims defective corners off a 3 × 3 grid', () => {
-    const grid = [220, 235, 250].flatMap((melt) => [400, 550, 700].map((hold) => ({ melt, hold, outcome: 'good' as const })))
+    const grid = [220, 235, 250].flatMap((temp) => [400, 550, 700].map((hold) => ({ temp, hold, outcome: 'good' as const })))
     grid[0] = { ...grid[0], outcome: 'short' as never }
     grid[8] = { ...grid[8], outcome: 'flash' as never }
     const r = processWindow({ rows: grid })
     expect(r.trimmed).toBe(true)
-    const box = { melt: r.melt!, hold: r.hold! }
-    expect(grid.filter((g) => g.outcome !== 'good').some((g) => g.melt >= box.melt[0] && g.melt <= box.melt[1] && g.hold >= box.hold[0] && g.hold <= box.hold[1])).toBe(false)
-    expect(box.melt[1] - box.melt[0] > 0 && box.hold[1] - box.hold[0] > 0).toBe(true)
+    const box = { temp: r.temp!, hold: r.hold! }
+    expect(grid.filter((g) => g.outcome !== 'good').some((g) => g.temp >= box.temp[0] && g.temp <= box.temp[1] && g.hold >= box.hold[0] && g.hold <= box.hold[1])).toBe(false)
+    expect(box.temp[1] - box.temp[0] > 0 && box.hold[1] - box.hold[0] > 0).toBe(true)
   })
 })
 

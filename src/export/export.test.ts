@@ -8,19 +8,20 @@ describe('run table', () => {
 
   it('has a column per factor and per cavity, in run order', () => {
     const [header, ...rows] = runTable(s)
-    expect(header).toContain('Melt temperature (°C)')
+    expect(header).toContain('Melt temperature (°F)')
     expect(header).toContain('Boss height cavity 2 (mm)')
     expect(header).toContain('Flash (1-5)')
     expect(rows.map((r) => r[0])).toEqual(rows.map((_, i) => i + 1))
   })
 
   it('converts to the display units', () => {
-    const imperial = { ...s, units: 'imperial' as const }
-    const [header, first] = runTable(imperial)
+    const [header, first] = runTable(s)
     const col = header.indexOf('Melt temperature (°F)')
     expect(col).toBeGreaterThan(0)
-    const metric = s.runs.find((r) => r.order === 1)!.settings[s.factors[0].id]
-    expect(first[col]).toBeCloseTo((metric * 9) / 5 + 32, 6)
+    const stored = s.runs.find((r) => r.order === 1)!.settings[s.factors[0].id]
+    expect(first[col]).toBeCloseTo((stored * 9) / 5 + 32, 6)
+    const [imperialHeader] = runTable({ ...s, units: 'imperial' as const })
+    expect(imperialHeader).toContain('Boss height cavity 2 (in)')
   })
 })
 

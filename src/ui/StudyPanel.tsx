@@ -183,7 +183,10 @@ function StudyEditor({ ws, study }: { ws: Workspace; study: Study }) {
             </div>
           </fieldset>
         </div>
-        <p className="muted small">Values are stored in metric, so switching units only changes how they are shown.</p>
+        <p className="muted small">
+          Pressures show in psi, clamp force in US tons and temperatures in °F either way, as the presses show them. Metric shows part weights and
+          dimensions, speeds and volumes in g, mm, mm/s and cm³; imperial in oz, in, in/s and in³. Switching only changes how values are shown.
+        </p>
       </section>
 
       <section className="card">

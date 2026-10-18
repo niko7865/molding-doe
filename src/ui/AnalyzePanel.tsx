@@ -56,7 +56,7 @@ function designFactors(study: Study): Factor[] {
   return (study.design?.factorIds ?? []).map((id) => study.factors.find((f) => f.id === id)!)
 }
 
-/** "Melt temperature (°C)" */
+/** "Melt temperature (°F)" */
 function factorLabel(f: Factor, study: Study): string {
   const u = unitLabel(f.quantity, study.units)
   return u ? `${f.name} (${u})` : f.name

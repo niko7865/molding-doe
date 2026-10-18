@@ -63,6 +63,7 @@ const DEMO_GUIDE: Study['guide'] = {
     rows: [6, 8, 10, 12, 14, 16, 18].map((time, i) => ({ time, value: [52.31, 52.36, 52.4, 52.43, 52.44, 52.45, 52.45][i] })),
   },
   window: {
+    temperature: 'melt',
     rows: [
       [220, 400, 'short'],
       [220, 550, 'short'],
@@ -76,7 +77,7 @@ const DEMO_GUIDE: Study['guide'] = {
       [260, 650, 'good'],
       [270, 550, 'flash'],
       [270, 400, 'sink'],
-    ].map(([melt, hold, outcome]) => ({ melt: melt as number, hold: hold as number, outcome: outcome as 'good' | 'short' | 'flash' | 'sink' })),
+    ].map(([temp, hold, outcome]) => ({ temp: temp as number, hold: hold as number, outcome: outcome as 'good' | 'short' | 'flash' | 'sink' })),
   },
 }
 

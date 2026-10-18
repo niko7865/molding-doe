@@ -36,10 +36,10 @@ const DEFAULTS: { [K in GuideKey]: (study: Study) => NonNullable<Guide[K]> } = {
   }),
   gateSeal: () => ({ rows: [1, 2, 3, 4, 5, 6, 7, 8].map((time) => ({ time, weight: null })) }),
   cooling: () => ({ label: 'Critical dimension', quantity: 'length', rows: Array.from({ length: 6 }, () => ({ time: null, value: null })) }),
-  window: () => ({ rows: [] }),
+  window: () => ({ temperature: 'melt', rows: [] }),
 }
 
-/** Plastic-pressure reading in the study's units, e.g. "1,250 bar". */
+/** Plastic-pressure reading in the study's units, e.g. "18,000 psi". */
 function pressureText(v: number, study: Study) {
   return formatValue(v, 'pressure', study)
 }
@@ -460,6 +460,11 @@ const OUTCOMES = [
   { value: 'other', label: 'Other defect' },
 ] as const
 
+const TEMPERATURES = {
+  melt: { label: 'Melt temperature', preset: 'melt_temp' },
+  mold: { label: 'Mold temperature', preset: 'mold_temp' },
+} as const
+
 function presetRange(study: Study, key: string): [number, number] {
   const f = study.factors.find((x) => x.preset === key) ?? FACTOR_PRESETS.find((p) => p.key === key)!
   return [f.low, f.high]
@@ -470,26 +475,27 @@ function WindowResultView({ study }: { study: Study }) {
   if (!g) return null
   const r = processWindow(g)
   if (r.good.length + r.bad.length < 2) return <p className="muted">Judge at least two settings to draw the window.</p>
+  const temp = TEMPERATURES[g.temperature].label
   const t = (v: number) => toDisplay(v, 'temperature', study.units)
   const p = (v: number) => toDisplay(v, 'pressure', study.units)
   const label = (o: string) => OUTCOMES.find((x) => x.value === o)?.label ?? o
   return (
     <>
       <ScatterChart
-        title="Hold pressure vs melt temperature"
+        title={`Hold pressure vs ${temp.toLowerCase()}`}
         points={[
-          ...r.good.map((s) => ({ x: t(s.melt), y: p(s.hold), label: 'Good', highlight: true })),
-          ...r.bad.map((s) => ({ x: t(s.melt), y: p(s.hold), label: label(s.outcome), highlight: true, group2: true })),
+          ...r.good.map((s) => ({ x: t(s.temp), y: p(s.hold), label: 'Good', highlight: true })),
+          ...r.bad.map((s) => ({ x: t(s.temp), y: p(s.hold), label: label(s.outcome), highlight: true, group2: true })),
         ]}
-        xLabel={`Melt temperature (${unitLabel('temperature', study.units)})`}
+        xLabel={`${temp} (${unitLabel('temperature', study.units)})`}
         yLabel={`Hold pressure (${unitLabel('pressure', study.units)})`}
         legend={['Good', 'Defect']}
-        box={r.melt && r.hold ? { x: [t(r.melt[0]), t(r.melt[1])], y: [p(r.hold[0]), p(r.hold[1])], label: 'Process window' } : undefined}
+        box={r.temp && r.hold ? { x: [t(r.temp[0]), t(r.temp[1])], y: [p(r.hold[0]), p(r.hold[1])], label: 'Process window' } : undefined}
         tooltip={(pt) => `${pt.label} at ${fmt(pt.x)} ${unitLabel('temperature', study.units)}, ${fmt(pt.y)} ${unitLabel('pressure', study.units)}`}
       />
-      <Suggestion tone={r.melt && r.hold ? 'info' : 'warn'}>
-        {r.melt && r.hold
-          ? `${r.trimmed ? 'Leaving out the defective settings, good parts' : 'Good parts'} span melt temperature ${formatValue(r.melt[0], 'temperature', study)} to ${formatValue(r.melt[1], 'temperature', study)} and hold pressure ${pressureText(r.hold[0], study)} to ${pressureText(r.hold[1], study)}. Set the process near the middle of this window; with a DOE, use it as the ranges for the two factors.`
+      <Suggestion tone={r.temp && r.hold ? 'info' : 'warn'}>
+        {r.temp && r.hold
+          ? `${r.trimmed ? 'Leaving out the defective settings, good parts' : 'Good parts'} span ${temp.toLowerCase()} ${formatValue(r.temp[0], 'temperature', study)} to ${formatValue(r.temp[1], 'temperature', study)} and hold pressure ${pressureText(r.hold[0], study)} to ${pressureText(r.hold[1], study)}. Set the process near the middle of this window; with a DOE, use it as the ranges for the two factors.`
           : r.trimmed
             ? 'Defects sit among the good settings, so no defect-free range covers two levels of each factor. Test a finer grid around the good settings.'
             : 'Good parts need to span at least two settings of each factor to suggest a range.'}
@@ -501,13 +507,19 @@ function WindowResultView({ study }: { study: Study }) {
 function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
   const g = study.guide?.window ?? DEFAULTS.window(study)
   type Row = (typeof g.rows)[number]
+  const temp = TEMPERATURES[g.temperature]
   const set = (rows: Row[]) => patchGuide(ws, 'window', DEFAULTS.window(study), (x) => ({ ...x, rows }))
   const r = processWindow(g)
+  const pick = (temperature: keyof typeof TEMPERATURES) => {
+    if (temperature === g.temperature) return
+    if (g.rows.length && !confirm(`Switching to ${TEMPERATURES[temperature].label.toLowerCase()} clears the ${g.rows.length} settings entered. Continue?`)) return
+    patchGuide(ws, 'window', DEFAULTS.window(study), (x) => ({ ...x, temperature, rows: [] }))
+  }
   const grid = () => {
-    const [ml, mh] = presetRange(study, 'melt_temp')
+    const [tl, th] = presetRange(study, temp.preset)
     const [hl, hh] = presetRange(study, 'hold_pressure')
     const rows: Row[] = []
-    for (const m of [ml, (ml + mh) / 2, mh]) for (const h of [hl, (hl + hh) / 2, hh]) rows.push({ melt: m, hold: h, outcome: 'good' })
+    for (const m of [tl, (tl + th) / 2, th]) for (const h of [hl, (hl + hh) / 2, hh]) rows.push({ temp: m, hold: h, outcome: 'good' })
     set(rows)
   }
   const apply = () =>
@@ -516,17 +528,27 @@ function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
         factors.some((f) => f.preset === key)
           ? factors.map((f) => (f.preset === key ? { ...f, low: range[0], high: range[1] } : f))
           : [...factors, { ...factorFromPreset(key), low: range[0], high: range[1] }]
-      return { ...s, factors: withRange(withRange(s.factors, 'melt_temp', r.melt!), 'hold_pressure', r.hold!) }
+      return { ...s, factors: withRange(withRange(s.factors, temp.preset, r.temp!), 'hold_pressure', r.hold!) }
     })
   return (
     <>
+      <fieldset className="field">
+        <legend>Temperature to vary</legend>
+        <div className="segmented">
+          {(Object.keys(TEMPERATURES) as (keyof typeof TEMPERATURES)[]).map((k) => (
+            <button key={k} className={g.temperature === k ? 'active' : ''} aria-pressed={g.temperature === k} onClick={() => pick(k)}>
+              {TEMPERATURES[k].label}
+            </button>
+          ))}
+        </div>
+      </fieldset>
       <div className="table-wrap">
         <table className="entry">
           <thead>
             <tr>
               <th>#</th>
               <th>
-                Melt temperature <span className="unit">({unitLabel('temperature', study.units)})</span>
+                {temp.label} <span className="unit">({unitLabel('temperature', study.units)})</span>
               </th>
               <th>
                 Hold pressure <span className="unit">({unitLabel('pressure', study.units)})</span>
@@ -540,7 +562,7 @@ function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
               <tr key={i}>
                 <td>{i + 1}</td>
                 <td>
-                  <NumberField hideLabel label={`Melt temperature, row ${i + 1}`} value={row.melt ?? undefined} quantity="temperature" units={study.units} onChange={(v) => set(g.rows.map((x, j) => (j === i ? { ...x, melt: v ?? null } : x)))} />
+                  <NumberField hideLabel label={`${temp.label}, row ${i + 1}`} value={row.temp ?? undefined} quantity="temperature" units={study.units} onChange={(v) => set(g.rows.map((x, j) => (j === i ? { ...x, temp: v ?? null } : x)))} />
                 </td>
                 <td>
                   <NumberField hideLabel label={`Hold pressure, row ${i + 1}`} value={row.hold ?? undefined} quantity="pressure" units={study.units} onChange={(v) => set(g.rows.map((x, j) => (j === i ? { ...x, hold: v ?? null } : x)))} />
@@ -564,7 +586,7 @@ function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
           </tbody>
         </table>
         <div className="row">
-          <button className="btn" onClick={() => set([...g.rows, { melt: null, hold: null, outcome: 'good' }])}>
+          <button className="btn" onClick={() => set([...g.rows, { temp: null, hold: null, outcome: 'good' }])}>
             Add setting
           </button>
           {g.rows.length === 0 && (
@@ -575,10 +597,10 @@ function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
         </div>
       </div>
       <WindowResultView study={{ ...study, guide: { ...study.guide, window: g } }} />
-      {r.melt && r.hold && doeEnabled(study) && (
+      {r.temp && r.hold && doeEnabled(study) && (
         <div className="row">
           <button className="btn" disabled={study.runs.length > 0} onClick={apply}>
-            Use as DOE ranges for melt temperature and hold pressure
+            Use as DOE ranges for {temp.label.toLowerCase()} and hold pressure
           </button>
           {study.runs.length > 0 && <span className="muted small">Runs already exist; change factor ranges on the Design tab before creating new runs.</span>}
         </div>

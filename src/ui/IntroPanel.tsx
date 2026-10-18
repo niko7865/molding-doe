@@ -71,7 +71,7 @@ export function IntroPanel({ ws, go }: { ws: Workspace; go: (id: SectionId) => v
           <li>Everything stays in this browser. Nothing is sent to a server, and the site works offline once it has loaded.</li>
           <li>Your work is saved in the browser as you go. To share it or keep it safe, use Save study file and open it again on any computer.</li>
           <li>Technicians can enter results on a tablet and send the file back; Merge results from file copies them into your copy.</li>
-          <li>Values are stored in metric; the units switch only changes how they are shown.</li>
+          <li>Pressures show in psi, clamp force in US tons and temperatures in °F, as on the presses. The metric/imperial switch changes part measurements, speeds and volumes.</li>
         </ul>
       </section>
     </>
