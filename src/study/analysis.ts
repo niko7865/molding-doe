@@ -89,7 +89,7 @@ export function seriesData(study: Study, series: Series): SeriesData {
   const runs: Run[] = []
   const y: number[] = []
   for (const r of [...study.runs].sort((a, b) => a.order - b.order)) {
-    if (r.status !== 'done' || !r.coded) continue
+    if (r.status !== 'done' || !r.coded || r.archived) continue
     const v = seriesValue(r, series, response)
     if (v === null || !Number.isFinite(v)) continue
     runs.push(r)
@@ -103,7 +103,7 @@ export function seriesData(study: Study, series: Series): SeriesData {
     runs,
     blocks: new Set(blocks).size > 1 ? blocks : undefined,
     wholePlots: runs.every((r) => r.wholePlot) ? wholePlots : undefined,
-    excluded: study.runs.length - runs.length,
+    excluded: study.runs.filter((r) => !r.archived).length - runs.length,
   }
 }
 
@@ -148,6 +148,10 @@ export function analyzeSeries(study: Study, series: Series): SeriesAnalysis {
   const candidates = candidateTerms(study)
   const settings = settingsFor(study, series.key)
   const warnings: string[] = []
+  if (data.y.length < 3) {
+    const earlier = study.runs.filter((r) => r.archived && r.status === 'done').length
+    if (earlier > 0) throw new Error(`The design moved to a new region. ${earlier} finished run${earlier === 1 ? ' is' : 's are'} from earlier ranges and left out; finish runs in the new region to analyze it.`)
+  }
   if (data.y.length < 3) throw new Error(`Only ${data.y.length} finished run${data.y.length === 1 ? ' has' : 's have'} this value, which is too few to analyze.`)
   if (data.excluded > 0) warnings.push(`${data.excluded} run${data.excluded === 1 ? ' is' : 's are'} left out (not done, aborted, or missing this value).`)
   if ((series.kind === 'rating' || series.kind === 'passfail') && isAllOrNothing(data.y)) {
@@ -193,7 +197,7 @@ export function analyzeSeries(study: Study, series: Series): SeriesAnalysis {
 /** The tested region in coded units; a rotatable CCD is only supported inside its sphere. */
 export function designRegion(study: Study): Region {
   const k = study.design?.factorIds.length ?? 0
-  const coded = study.runs.flatMap((r) => (r.coded ? [r.coded] : []))
+  const coded = study.runs.flatMap((r) => (r.coded && !r.archived ? [r.coded] : []))
   const bounds = Array.from({ length: k }, (_, j): [number, number] => {
     const v = coded.map((c) => c[j])
     return [Math.min(-1, ...v), Math.max(1, ...v)]

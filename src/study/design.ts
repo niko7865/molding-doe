@@ -113,7 +113,7 @@ export interface DesignPreview {
   beyondRange: string[]
 }
 
-function emptyResults(study: Study): Run['results'] {
+export function emptyResults(study: Study): Run['results'] {
   return Object.fromEntries(study.responses.map((r) => [r.id, new Array(r.perCavity ? study.cavities : 1).fill(null)]))
 }
 
@@ -188,16 +188,27 @@ export function syncResults(study: Study): Study {
   return { ...study, runs }
 }
 
+const TYPE_LABEL: Record<string, string> = {
+  'full-factorial': 'Full factorial',
+  'fractional-factorial': 'Fractional factorial',
+  'plackett-burman': 'Plackett–Burman',
+  'box-behnken': 'Box–Behnken',
+  'central-composite': 'Central composite',
+}
+
 /** "Central composite, face-centered, 27 runs (3 center points)" */
 export function describeDesign(study: Study): string {
   const d = study.design
   if (!d) return 'No design yet'
   const k = d.factorIds.length
-  const label = designChoices(k).find((c) => c.key === choiceKey(d, k))?.label ?? d.type
+  const label = designChoices(k).find((c) => c.key === choiceKey(d, k))?.label ?? TYPE_LABEL[d.type] ?? d.type
   const extras = [
-    d.centerPoints ? `${d.centerPoints} center point${d.centerPoints === 1 ? '' : 's'}` : '',
+    d.centerPoints && !d.stages ? `${d.centerPoints} center point${d.centerPoints === 1 ? '' : 's'}` : '',
     d.replicates > 1 ? `${d.replicates} replicates` : '',
     d.blocking.kind !== 'none' ? `${new Set(study.runs.map((r) => r.block ?? 1)).size} blocks` : '',
   ].filter(Boolean)
-  return `${label}, ${study.runs.length} runs${extras.length ? ` (${extras.join(', ')})` : ''}`
+  const stages = d.stages && d.stages.length > 1 ? `, built in ${d.stages.length} stages` : ''
+  const archived = study.runs.filter((r) => r.archived).length
+  const runs = archived ? `${study.runs.length - archived} runs in the current region plus ${archived} earlier` : `${study.runs.length} runs`
+  return `${label}, ${runs}${extras.length ? ` (${extras.join(', ')})` : ''}${stages}`
 }

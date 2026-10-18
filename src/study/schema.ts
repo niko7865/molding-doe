@@ -78,6 +78,10 @@ export const runSchema = z.object({
   coded: z.array(z.number()).optional(),
   kind: z.enum(['factorial', 'center', 'axial', 'edge']).optional(),
   block: z.number().int().positive().optional(),
+  /** Which stage of a sequentially grown design added this run (see design.stages), 1-based. */
+  stage: z.number().int().positive().optional(),
+  /** From an earlier region that the current factor ranges no longer cover; kept but not analyzed. */
+  archived: z.boolean().optional(),
   wholePlot: z.number().int().positive().optional(),
 })
 
@@ -154,6 +158,19 @@ export const designSpecSchema = z.object({
   randomize: z.boolean(),
   seed: z.number().int(),
   createdAt: z.string(),
+  /** Sequential growth: the stages that built the current runs, oldest first. */
+  stages: z
+    .array(
+      z.object({
+        kind: z.enum(['initial', 'foldover', 'axial', 'region']),
+        /** Block the stage's runs were added in. */
+        block: z.number().int().positive(),
+        runs: z.number().int().min(0),
+        createdAt: z.string(),
+        note: z.string().optional(),
+      }),
+    )
+    .optional(),
 })
 
 export const studySchema = z.object({

@@ -9,7 +9,9 @@ describe('demo study', () => {
   const s = demoStudy(new Date('2026-01-01T00:00:00Z'))
 
   it('is a valid study file', () => {
-    expect(parseStudy(serializeStudy(s)).runs).toHaveLength(27)
+    expect(parseStudy(serializeStudy(s)).runs).toHaveLength(8 + 3 + 8 + 2 + 8 + 2)
+    expect(s.design!.stages!.map((x) => x.kind)).toEqual(['initial', 'foldover', 'axial'])
+    expect(s.design!.type).toBe('central-composite')
   })
 
   it('recovers the true effects on boss height', () => {
