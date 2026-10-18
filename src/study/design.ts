@@ -187,3 +187,17 @@ export function syncResults(study: Study): Study {
   })
   return { ...study, runs }
 }
+
+/** "Central composite, face-centered, 27 runs (3 center points)" */
+export function describeDesign(study: Study): string {
+  const d = study.design
+  if (!d) return 'No design yet'
+  const k = d.factorIds.length
+  const label = designChoices(k).find((c) => c.key === choiceKey(d, k))?.label ?? d.type
+  const extras = [
+    d.centerPoints ? `${d.centerPoints} center point${d.centerPoints === 1 ? '' : 's'}` : '',
+    d.replicates > 1 ? `${d.replicates} replicates` : '',
+    d.blocking.kind !== 'none' ? `${new Set(study.runs.map((r) => r.block ?? 1)).size} blocks` : '',
+  ].filter(Boolean)
+  return `${label}, ${study.runs.length} runs${extras.length ? ` (${extras.join(', ')})` : ''}`
+}

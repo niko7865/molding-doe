@@ -65,7 +65,11 @@ function StartScreen({ ws }: { ws: Workspace }) {
         </form>
         <div className="row">
           <FilePicker label="Open study file…" onFile={ws.openFile} />
+          <button className="btn" type="button" onClick={ws.openDemo}>
+            Open the demo study
+          </button>
         </div>
+        <p className="muted small">The demo is a finished two-cavity housing study, from design through confirmation, for trying out every step.</p>
       </section>
 
       <section className="card">

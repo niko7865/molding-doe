@@ -3,6 +3,7 @@ import { SECTIONS, type SectionId } from './app/sections'
 import { useWorkspace } from './study/useWorkspace'
 import { AnalyzePanel } from './ui/AnalyzePanel'
 import { DesignPanel } from './ui/DesignPanel'
+import { ReportPanel } from './ui/ReportPanel'
 import { RunPanel } from './ui/RunPanel'
 import { StudyPanel } from './ui/StudyPanel'
 
@@ -39,6 +40,8 @@ function App() {
           <RunPanel ws={ws} study={ws.study} />
         ) : active === 'analyze' && ws.study ? (
           <AnalyzePanel ws={ws} study={ws.study} />
+        ) : active === 'report' && ws.study ? (
+          <ReportPanel ws={ws} study={ws.study} />
         ) : (
           <section className="card">
             <h2>{section.label}</h2>

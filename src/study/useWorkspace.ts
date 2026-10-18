@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { downloadBlob } from '../export/download'
+import { demoStudy } from './demo'
 import { parseStudy, serializeStudy, studyFileName } from './file'
 import { mergeStudies, resolveConflict, type Conflict } from './merge'
 import { createStudy, type Study } from './schema'
@@ -63,6 +65,7 @@ export function useWorkspace() {
   )
 
   const create = useCallback((name: string) => open(createStudy(name)), [open])
+  const openDemo = useCallback(() => open(demoStudy()), [open])
 
   const openRecent = useCallback(
     async (id: string) => {
@@ -113,12 +116,7 @@ export function useWorkspace() {
 
   const saveFile = useCallback(() => {
     if (!study) return
-    const url = URL.createObjectURL(new Blob([serializeStudy(study)], { type: 'application/json' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = studyFileName(study)
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    downloadBlob(serializeStudy(study), 'application/json', studyFileName(study))
   }, [study])
 
   const close = useCallback(() => {
@@ -144,6 +142,7 @@ export function useWorkspace() {
     dismissError: () => setError(null),
     dismissMergeReport: () => setMergeReport(null),
     create,
+    openDemo,
     openRecent,
     openFile,
     mergeFile,
