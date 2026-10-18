@@ -1,6 +1,8 @@
-# Molding DOE: v1 plan
+# Molding process development: plan
 
-A browser-only website that guides a plant team through scientific molding pre-studies, then designs, runs and analyzes a DOE, ending in a confirmed optimum and a printable report.
+A browser-only website that guides a plant team through process development for injection molding. The six scientific molding studies are the main workflow; a designed experiment (DOE) is an optional later stage that designs, runs and analyzes an experiment, ending in a confirmed optimum. Either way it ends in a printable report.
+
+The repo and site keep the `molding-doe` name.
 
 Repo: `niko7865/molding-doe` (React and TypeScript, hosted on GitHub Pages, installable for offline use on tablets).
 
@@ -10,6 +12,12 @@ Repo: `niko7865/molding-doe` (React and TypeScript, hosted on GitHub Pages, inst
 - **Runtime:** a static site. All computation and storage happen in the browser, and nothing is sent to a server. *(Q2, Q9)*
 - **Hosting:** GitHub Pages, with a service worker for offline use. A single-file HTML build is the fallback if outside sites are blocked. *(Q9)*
 - **Language:** English with generic terminology, and no mandated customer report format. *(Q27)*
+
+## Workflow
+
+- **Introduction:** the site opens on an introduction page that explains what the tool is for, the steps of a study and how data is kept, with buttons to start a study, continue the open one, or explore the demo.
+- **Steps:** Study (mold, press, units) → Molding studies (the six, in order) → Report. The DOE stage adds Design → Run → Analyze between the studies and the report.
+- **DOE is optional:** a per-study switch on the Study step, off for new studies. Turning it off hides the DOE steps and report sections but keeps their data. Files saved before the switch existed count as DOE studies when they have a design or runs.
 
 ## Data and sharing
 
@@ -23,9 +31,9 @@ Repo: `niko7865/molding-doe` (React and TypeScript, hosted on GitHub Pages, inst
 - **Units:** a metric/imperial switch. Values are stored in SI and converted for display.
 - **Machine profiles:** limits for each press (maximum injection pressure, shot size, speed, clamp tonnage). The design builder warns when any run exceeds them.
 
-## Pre-DOE guide *(Q4, Q11, Q21)*
+## Scientific molding studies (primary workflow) *(Q4, Q11, Q21)*
 
-The guide is advisory, so steps can be skipped. Skipped steps are flagged on the report. It covers six studies, each made up of a short entry table, one chart and a suggestion:
+The six studies set the process from the plastic’s point of view and are run in order, each building on the one before. They are advisory, so steps can be skipped; skipped steps are flagged on the report. Each is made up of a short entry table, one chart and a suggestion:
 
 1. **Viscosity curve:** relative viscosity vs. injection speed, suggesting the flat region.
 2. **Cavity balance:** fill-only weights per cavity, reporting the percentage imbalance.
@@ -34,7 +42,10 @@ The guide is advisory, so steps can be skipped. Skipped steps are flagged on the
 5. **Cooling time:** a critical dimension or quality measure vs. cooling time.
 6. **Process window:** hold pressure vs. melt temp, plotting the good/bad region.
 
-## DOE builder
+## DOE builder (optional stage)
+
+Everything from here through Confirmation belongs to the optional DOE stage.
+
 
 - **Designs:** full factorial 2^k, fractional factorial (Res III–V, showing the alias structure), Plackett–Burman, Box–Behnken and central composite (CCD). *(Q3)*
 - **Run options:** center points (default 3), replicates, randomization with a fixed and recorded seed, and blocking by day or shift. *(Q15)*
@@ -66,8 +77,8 @@ The confirmation step generates runs at the optimum setpoint, records their resu
 
 ## Output *(Q22)*
 
-- **Printable report (print to PDF):** study goal, pre-DOE results (with skipped steps flagged), factors and machine, design and run order, raw data, analysis plots and tables, the chosen optimum and the confirmation result.
-- **Exports:** CSV/Excel of the runs and responses, for cross-checking in Minitab or Excel.
+- **Printable report (print to PDF):** study goal, press, and the molding study results (with skipped steps flagged). With the DOE stage on it adds factors and responses, design and run order, raw data, analysis plots and tables, the chosen optimum and the confirmation result.
+- **Exports (DOE stage):** CSV/Excel of the runs and responses, for cross-checking in Minitab or Excel.
 
 ## Stats engine *(Q23)*
 
@@ -76,7 +87,7 @@ The confirmation step generates runs at the optimum setpoint, records their resu
 
 ## Demo study *(Q26)*
 
-A demo study of a 2-cavity housing, with factors for melt temp, hold pressure, hold time and mold temp. Responses are weight, a critical dimension and a flash rating. It covers the full path from pre-studies through a screening DOE and an RSM stage to confirmation, and it doubles as an end-to-end test fixture.
+A demo study of a 2-cavity housing, with factors for melt temp, hold pressure, hold time and mold temp. Responses are weight, a critical dimension and a flash rating. It covers the full path from the six molding studies through a screening DOE and an RSM stage to confirmation, and it doubles as an end-to-end test fixture.
 
 ## Build order *(Q25)*
 
@@ -88,8 +99,13 @@ A demo study of a 2-cavity housing, with factors for melt temp, hold pressure, h
 6. Report and CSV/Excel export, plus the demo study.
 7. Pre-DOE guide (six studies) and report flags.
 8. Sequential growth (fold-over, adding axial points, narrowing to a new region).
+9. Introduction page; the six molding studies become the main workflow and DOE an optional stage.
 
 Each step is a PR into `main`.
+
+## Next: wider process development
+
+The aim is to cover process development for injection molding as a whole, not only DOE. Further steps are to be agreed; the introduction page and the studies-first workflow are the first of them.
 
 ## Out of scope for v1
 

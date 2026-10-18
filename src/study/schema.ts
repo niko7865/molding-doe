@@ -190,6 +190,11 @@ export const studySchema = z.object({
   design: designSpecSchema.optional(),
   analysis: analysisSchema.optional(),
   guide: guideSchema.optional(),
+  /**
+   * The optional DOE stage (Design, Run, Analyze) is switched on. Turning it off hides those steps
+   * but keeps their data. Missing in files saved before it existed; see doeEnabled.
+   */
+  doe: z.boolean().optional(),
   runs: z.array(runSchema),
 })
 
@@ -221,6 +226,12 @@ export function createStudy(name: string, now = new Date()): Study {
     machine: null,
     factors: [],
     responses: [],
+    doe: false,
     runs: [],
   }
+}
+
+/** Whether the DOE stage is on. Older files have no flag: they were DOE studies if they have a design or runs. */
+export function doeEnabled(study: Study): boolean {
+  return study.doe ?? (study.design !== undefined || study.runs.length > 0)
 }

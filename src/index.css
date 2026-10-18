@@ -63,6 +63,12 @@ h1, h2 { margin: 0; line-height: 1.2; }
 }
 .step.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .step.active .num { background: var(--accent-text); color: var(--accent); }
+.step.optional { border-style: dashed; }
+
+/* Introduction */
+.intro p { max-width: 70ch; }
+.intro-steps, .intro-list { margin: 0; padding-left: 1.4em; display: grid; gap: 10px; max-width: 75ch; }
+.intro-studies { margin: 8px 0 0; padding-left: 1.4em; display: grid; gap: 4px; }
 
 main { display: grid; gap: 16px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; display: grid; gap: 12px; min-width: 0; }
@@ -203,7 +209,7 @@ details summary { cursor: pointer; min-height: 32px; }
   background: var(--text); color: var(--surface); font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; z-index: 2;
 }
 
-/* Pre-DOE guide */
+/* Molding studies */
 .guide { display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 760px) { .guide { grid-template-columns: minmax(0, 1fr); } }
 .guide-nav ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }

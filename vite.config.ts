@@ -11,9 +11,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'Molding DOE',
-        short_name: 'Molding DOE',
-        description: 'Guide, run and analyze designed experiments for injection molding.',
+        name: 'Molding process development',
+        short_name: 'Molding',
+        description: 'Scientific molding studies and optional DOE for developing an injection molding process.',
         theme_color: '#1f4e79',
         background_color: '#ffffff',
         display: 'standalone',

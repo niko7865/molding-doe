@@ -11,7 +11,7 @@ export const GUIDE_STUDIES: { key: GuideKey; title: string; why: string; how: st
   {
     key: 'balance',
     title: 'Cavity balance',
-    why: 'Shows whether every cavity fills alike. A large imbalance means the cavities need different processes, which no DOE fixes.',
+    why: 'Shows whether every cavity fills alike. A large imbalance means the cavities need different processes, which no process setting fixes.',
     how: 'Make fill-only shots (no hold, short of full). Weigh each cavity’s part for several shots.',
   },
   {
@@ -35,7 +35,7 @@ export const GUIDE_STUDIES: { key: GuideKey; title: string; why: string; how: st
   {
     key: 'window',
     title: 'Process window',
-    why: 'Maps where hold pressure and melt temperature make good parts, so DOE ranges stay inside a workable region.',
+    why: 'Maps where hold pressure and melt temperature make good parts, so the process sits well inside a workable region with room to drift.',
     how: 'Run a grid of melt temperature and hold pressure settings and judge each: good, short, flash, sink or another defect.',
   },
 ]
