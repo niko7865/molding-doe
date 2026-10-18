@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
+import { syncResults } from '../study/design'
 import { FILE_EXTENSION } from '../study/file'
 import type { Conflict } from '../study/merge'
 import type { MachineProfile, Study } from '../study/schema'
@@ -165,7 +166,7 @@ function StudyEditor({ ws, study }: { ws: Workspace; study: Study }) {
             units="metric"
             min={1}
             integer
-            onChange={(v) => v !== undefined && v >= 1 && Number.isInteger(v) && set({ cavities: v })}
+            onChange={(v) => v !== undefined && v >= 1 && Number.isInteger(v) && ws.update((s) => syncResults({ ...s, cavities: v }))}
           />
           <fieldset className="field">
             <legend>Units</legend>

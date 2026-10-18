@@ -72,6 +72,29 @@ export const runSchema = z.object({
   notes: z.string(),
   /** ISO timestamp of the last change to this run. */
   updatedAt: z.string(),
+  /** Standard (unrandomized) order from the design. */
+  std: z.number().int().positive().optional(),
+  /** Coded levels in the order of design.factorIds; the analysis fits to these. */
+  coded: z.array(z.number()).optional(),
+  kind: z.enum(['factorial', 'center', 'axial', 'edge']).optional(),
+  block: z.number().int().positive().optional(),
+  wholePlot: z.number().int().positive().optional(),
+})
+
+/** How the runs were generated, so they can be explained, analyzed and regenerated. */
+export const designSpecSchema = z.object({
+  type: z.enum(['full-factorial', 'fractional-factorial', 'plackett-burman', 'box-behnken', 'central-composite']),
+  /** Factor ids in design column order (A, B, C…). */
+  factorIds: z.array(z.string()),
+  generators: z.array(z.string()).optional(),
+  pbRuns: z.number().int().optional(),
+  alpha: z.enum(['rotatable', 'face-centered']).optional(),
+  centerPoints: z.number().int().min(0),
+  replicates: z.number().int().min(1),
+  blocking: z.object({ kind: z.enum(['none', 'replicates', 'confound', 'axial']), blocks: z.number().int().optional() }),
+  randomize: z.boolean(),
+  seed: z.number().int(),
+  createdAt: z.string(),
 })
 
 export const studySchema = z.object({
@@ -87,6 +110,8 @@ export const studySchema = z.object({
   machine: machineProfileSchema.nullable(),
   factors: z.array(factorSchema),
   responses: z.array(responseSchema),
+  /** Set once runs are generated. */
+  design: designSpecSchema.optional(),
   runs: z.array(runSchema),
 })
 
@@ -94,6 +119,7 @@ export type MachineProfile = z.infer<typeof machineProfileSchema>
 export type Factor = z.infer<typeof factorSchema>
 export type Response = z.infer<typeof responseSchema>
 export type Run = z.infer<typeof runSchema>
+export type DesignSpec = z.infer<typeof designSpecSchema>
 export type Study = z.infer<typeof studySchema>
 
 export function newId(): string {
