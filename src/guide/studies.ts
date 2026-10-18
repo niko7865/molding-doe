@@ -166,26 +166,26 @@ export function coolingTime(c: NonNullable<Guide['cooling']>): CoolingResult {
 // 6. Process window --------------------------------------------------------------------------
 
 export interface WindowResult {
-  good: { melt: number; hold: number }[]
-  bad: { melt: number; hold: number; outcome: string }[]
+  good: { temp: number; hold: number }[]
+  bad: { temp: number; hold: number; outcome: string }[]
   /** Box around the good settings, shrunk until no defective setting is inside: the process window, and a starting point for DOE ranges. */
-  melt: [number, number] | null
+  temp: [number, number] | null
   hold: [number, number] | null
   /** The box had to shrink to leave defects out. */
   trimmed: boolean
 }
 
-type Box = { melt: [number, number]; hold: [number, number] }
-const inside = (p: { melt: number; hold: number }, b: Box) => p.melt >= b.melt[0] && p.melt <= b.melt[1] && p.hold >= b.hold[0] && p.hold <= b.hold[1]
+type Box = { temp: [number, number]; hold: [number, number] }
+const inside = (p: { temp: number; hold: number }, b: Box) => p.temp >= b.temp[0] && p.temp <= b.temp[1] && p.hold >= b.hold[0] && p.hold <= b.hold[1]
 
-export function processWindow(w: NonNullable<Guide['window']>): WindowResult {
-  const rows = w.rows.filter((r) => finite(r.melt) && finite(r.hold)).map((r) => ({ melt: r.melt!, hold: r.hold!, outcome: r.outcome }))
+export function processWindow(w: Pick<NonNullable<Guide['window']>, 'rows'>): WindowResult {
+  const rows = w.rows.filter((r) => finite(r.temp) && finite(r.hold)).map((r) => ({ temp: r.temp!, hold: r.hold!, outcome: r.outcome }))
   const good = rows.filter((r) => r.outcome === 'good')
   const bad = rows.filter((r) => r.outcome !== 'good')
-  const none = { good, bad, melt: null, hold: null, trimmed: false }
+  const none = { good, bad, temp: null, hold: null, trimmed: false }
   if (good.length < 2) return none
   let box: Box = {
-    melt: [Math.min(...good.map((g) => g.melt)), Math.max(...good.map((g) => g.melt))],
+    temp: [Math.min(...good.map((g) => g.temp)), Math.max(...good.map((g) => g.temp))],
     hold: [Math.min(...good.map((g) => g.hold)), Math.max(...good.map((g) => g.hold))],
   }
   let trimmed = false
@@ -195,21 +195,21 @@ export function processWindow(w: NonNullable<Guide['window']>): WindowResult {
     if (!b) break
     trimmed = true
     const options: Box[] = []
-    const melts = good.map((g) => g.melt)
+    const temps = good.map((g) => g.temp)
     const holds = good.map((g) => g.hold)
     const above = (v: number[], t: number) => v.filter((x) => x > t)
     const below = (v: number[], t: number) => v.filter((x) => x < t)
-    if (above(melts, b.melt).length) options.push({ ...box, melt: [Math.min(...above(melts, b.melt)), box.melt[1]] })
-    if (below(melts, b.melt).length) options.push({ ...box, melt: [box.melt[0], Math.max(...below(melts, b.melt))] })
+    if (above(temps, b.temp).length) options.push({ ...box, temp: [Math.min(...above(temps, b.temp)), box.temp[1]] })
+    if (below(temps, b.temp).length) options.push({ ...box, temp: [box.temp[0], Math.max(...below(temps, b.temp))] })
     if (above(holds, b.hold).length) options.push({ ...box, hold: [Math.min(...above(holds, b.hold)), box.hold[1]] })
     if (below(holds, b.hold).length) options.push({ ...box, hold: [box.hold[0], Math.max(...below(holds, b.hold))] })
-    const valid = options.filter((o) => o.melt[0] < o.melt[1] && o.hold[0] < o.hold[1])
+    const valid = options.filter((o) => o.temp[0] < o.temp[1] && o.hold[0] < o.hold[1])
     if (!valid.length) return { ...none, trimmed }
     const kept = (o: Box) => good.filter((g) => inside(g, o)).length
     box = valid.reduce((a, o) => (kept(o) > kept(a) ? o : a))
   }
-  if (box.melt[0] >= box.melt[1] || box.hold[0] >= box.hold[1]) return { ...none, trimmed }
-  return { good, bad, melt: box.melt, hold: box.hold, trimmed }
+  if (box.temp[0] >= box.temp[1] || box.hold[0] >= box.hold[1]) return { ...none, trimmed }
+  return { good, bad, temp: box.temp, hold: box.hold, trimmed }
 }
 
 // Status -------------------------------------------------------------------------------------

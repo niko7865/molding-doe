@@ -6,7 +6,18 @@ export const FILE_EXTENSION = '.doe.json'
  * Upgrades a raw study object from version n to n + 1, keyed by n.
  * Add an entry here whenever SCHEMA_VERSION is bumped; never edit an existing one.
  */
-const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {}
+const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {
+  // 1 → 2: the process window can plot mold temperature too; rows hold `temp` instead of `melt`.
+  1: (raw) => {
+    const guide = raw.guide as { window?: { rows?: { melt?: unknown }[] } } | undefined
+    if (!guide?.window) return raw
+    const { rows = [], ...window } = guide.window
+    return {
+      ...raw,
+      guide: { ...guide, window: { ...window, temperature: 'melt', rows: rows.map(({ melt, ...r }) => ({ ...r, temp: melt })) } },
+    }
+  },
+}
 
 export class StudyFileError extends Error {}
 

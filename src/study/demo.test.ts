@@ -35,7 +35,7 @@ describe('demo study', () => {
     expect(viscosityCurve(s.guide!.viscosity!).flatFrom).not.toBeNull()
     expect(gateSeal(s.guide!.gateSeal!).sealTime).toBe(5)
     const w = processWindow(s.guide!.window!)
-    expect(w.melt).toEqual([230, 260])
+    expect(w.temp).toEqual([230, 260])
     expect(w.hold).toEqual([450, 650])
   })
 })

@@ -51,3 +51,16 @@ describe('DOE stage flag', () => {
     expect(s.runs.length).toBeGreaterThan(0)
   })
 })
+
+describe('format 1 files', () => {
+  it('upgrade the process window to melt temperature', () => {
+    const v1 = {
+      ...makeTestStudy(),
+      schemaVersion: 1,
+      guide: { window: { notes: 'x', rows: [{ melt: 230, hold: 450, outcome: 'good' }] } },
+    }
+    const s = parseStudy(JSON.stringify(v1))
+    expect(s.schemaVersion).toBe(2)
+    expect(s.guide!.window).toEqual({ notes: 'x', temperature: 'melt', rows: [{ temp: 230, hold: 450, outcome: 'good' }] })
+  })
+})

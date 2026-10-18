@@ -14,6 +14,7 @@ export type Quantity =
   | 'none'
 
 interface UnitDef {
+  /** The stored unit. */
   metric: string
   imperial: string
   /** Converts a stored (metric) value to imperial. */
@@ -51,18 +52,26 @@ export const UNITS: Record<Quantity, UnitDef> = {
   none: scale('', '', 1),
 }
 
+/**
+ * Shown in the units the presses use (psi, US tons, °F) in both systems: the metric system
+ * only changes part measurements, speeds and volumes.
+ */
+const PRESS_UNITS: ReadonlySet<Quantity> = new Set(['temperature', 'pressure', 'force'])
+
+const imperialShown = (q: Quantity, system: UnitSystem) => system === 'imperial' || PRESS_UNITS.has(q)
+
 export function unitLabel(q: Quantity, system: UnitSystem): string {
-  return UNITS[q][system]
+  return imperialShown(q, system) ? UNITS[q].imperial : UNITS[q].metric
 }
 
 /** Stored metric value → value in the given display system. */
 export function toDisplay(value: number, q: Quantity, system: UnitSystem): number {
-  return system === 'metric' ? value : UNITS[q].toImperial(value)
+  return imperialShown(q, system) ? UNITS[q].toImperial(value) : value
 }
 
 /** Value entered in the given display system → stored metric value. */
 export function fromDisplay(value: number, q: Quantity, system: UnitSystem): number {
-  return system === 'metric' ? value : UNITS[q].fromImperial(value)
+  return imperialShown(q, system) ? UNITS[q].fromImperial(value) : value
 }
 
 /**
