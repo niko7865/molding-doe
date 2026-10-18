@@ -69,7 +69,7 @@ function StartScreen({ ws }: { ws: Workspace }) {
             Open the demo study
           </button>
         </div>
-        <p className="muted small">The demo is a finished two-cavity housing study, from design through confirmation, for trying out every step.</p>
+        <p className="muted small">The demo is a finished two-cavity housing study: pre-DOE studies, a screening design grown into a response surface in three stages, and confirmation runs.</p>
       </section>
 
       <section className="card">

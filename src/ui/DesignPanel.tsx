@@ -6,6 +6,7 @@ import { newId, type Factor, type Response, type Study } from '../study/schema'
 import { unitLabel, type Quantity } from '../study/units'
 import type { Workspace } from '../study/useWorkspace'
 import { formatValue } from './format'
+import { GrowthCard } from './GrowthCard'
 import { NumberField } from './NumberField'
 
 const QUANTITIES: { value: Quantity; label: string }[] = [
@@ -336,6 +337,7 @@ export function DesignPanel({ ws, study }: { ws: Workspace; study: Study }) {
       <FactorsCard study={study} ws={ws} />
       <ResponsesCard study={study} ws={ws} />
       <DesignCard key={study.id} study={study} ws={ws} />
+      <GrowthCard key={`${study.id}-${study.runs.length}`} study={study} ws={ws} />
     </>
   )
 }

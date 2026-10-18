@@ -24,6 +24,7 @@ function RunSheet({ study, onOpen }: { study: Study; onOpen: (id: string) => voi
   const runs = byOrder(study)
   const blocks = new Set(runs.map((r) => r.block)).size > 1
   const plots = runs.some((r) => r.wholePlot)
+  const stages = runs.some((r) => (r.stage ?? 1) > 1)
   const done = runs.filter((r) => r.status === 'done').length
   const [printed] = useState(() => new Date().toLocaleDateString())
   return (
@@ -48,6 +49,7 @@ function RunSheet({ study, onOpen }: { study: Study; onOpen: (id: string) => voi
           <thead>
             <tr>
               <th>Run</th>
+              {stages && <th>Stage</th>}
               {blocks && <th>Block</th>}
               {plots && <th>Whole plot</th>}
               {study.factors.map((f) => (
@@ -63,13 +65,14 @@ function RunSheet({ study, onOpen }: { study: Study; onOpen: (id: string) => voi
           </thead>
           <tbody>
             {runs.map((r) => (
-              <tr key={r.id} className={r.status}>
+              <tr key={r.id} className={r.archived ? `${r.status} archived` : r.status}>
                 <td>
                   <button className="link no-print" onClick={() => onOpen(r.id)}>
                     {r.order}
                   </button>
                   <span className="print-only">{r.order}</span>
                 </td>
+                {stages && <td>{r.stage ?? 1}</td>}
                 {blocks && <td>{r.block}</td>}
                 {plots && <td>{r.wholePlot}</td>}
                 {study.factors.map((f) => (
@@ -77,7 +80,10 @@ function RunSheet({ study, onOpen }: { study: Study; onOpen: (id: string) => voi
                     {r.settings[f.id] === undefined ? '–' : formatValue(r.settings[f.id], f.quantity, study, false)}
                   </td>
                 ))}
-                <td className="no-print">{STATUS_LABEL[r.status]}</td>
+                <td className="no-print">
+                  {STATUS_LABEL[r.status]}
+                  {r.archived && <span className="tag">Earlier region</span>}
+                </td>
                 <td className="print-only write-in" />
               </tr>
             ))}

@@ -27,9 +27,11 @@ export function runTable(study: Study): Cell[][] {
   const runs = [...study.runs].sort((a, b) => a.order - b.order)
   const blocks = new Set(runs.map((r) => r.block ?? 1)).size > 1
   const plots = runs.some((r) => r.wholePlot)
+  const stages = runs.some((r) => (r.stage ?? 1) > 1)
   const header: Cell[] = [
     'Run order',
     'Std order',
+    ...(stages ? ['Stage'] : []),
     ...(blocks ? ['Block'] : []),
     ...(plots ? ['Whole plot'] : []),
     'Point type',
@@ -41,10 +43,11 @@ export function runTable(study: Study): Cell[][] {
   const rows = runs.map((r): Cell[] => [
     r.order,
     r.std ?? null,
+    ...(stages ? [r.stage ?? 1] : []),
     ...(blocks ? [r.block ?? 1] : []),
     ...(plots ? [r.wholePlot ?? null] : []),
     r.kind ? KIND_LABEL[r.kind] : null,
-    STATUS_LABEL[r.status],
+    r.archived ? `${STATUS_LABEL[r.status]}, earlier region` : STATUS_LABEL[r.status],
     ...study.factors.map((f) => (r.settings[f.id] === undefined ? null : clean(toDisplay(r.settings[f.id], f.quantity, study.units)))),
     ...study.responses.flatMap((resp) => {
       const values = r.results[resp.id] ?? []

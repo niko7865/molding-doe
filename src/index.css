@@ -135,6 +135,7 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; }
 th.num { text-align: right; }
 tr.done td { color: var(--muted); }
 tr.aborted td { color: var(--danger); text-decoration: line-through; }
+tr.archived td { opacity: 0.6; }
 
 .setpoints { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
 .setpoint { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }

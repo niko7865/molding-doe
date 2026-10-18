@@ -1,12 +1,14 @@
 import { seededRandom } from '../stats'
 import { optimizeStudy } from './analysis'
 import { applyDesign, previewDesign, type DesignDraft } from './design'
+import { previewGrowth } from './growth'
 import { factorFromPreset } from './presets'
-import { createStudy, type Study } from './schema'
+import { createStudy, type Run, type Study } from './schema'
 
 /**
- * A worked example: a two-cavity housing on a 180 t press, studied with a face-centered central
- * composite design over melt temperature, hold pressure, hold time and mold temperature.
+ * A worked example: a two-cavity housing on a 180 t press. Melt temperature, hold pressure, hold
+ * time and mold temperature were screened with a half fraction, folded over, then grown into a
+ * face-centered central composite design in three blocks.
  * The results come from a known model plus noise, so the demo doubles as an end-to-end test.
  */
 
@@ -106,9 +108,10 @@ export function demoStudy(now = new Date()): Study {
     ],
   }
   s.guide = DEMO_GUIDE
+  // Stage 1: a half-fraction screening design with center points.
   const draft: DesignDraft = {
-    type: 'central-composite',
-    alpha: 'face-centered',
+    type: 'fractional-factorial',
+    generators: ['D=ABC'],
     centerPoints: 3,
     replicates: 1,
     blocking: { kind: 'none' },
@@ -117,20 +120,30 @@ export function demoStudy(now = new Date()): Study {
   }
   s = applyDesign(s, draft, previewDesign(s, draft, now), now)
   const round = (v: number, step: number) => Math.round(v / step) * step
-  s.runs = s.runs.map((r) => {
+  // Each stage ran on a different day; the later ones came out slightly heavier.
+  const dayShift = (r: Run) => ((r.stage ?? 1) - 1) * 0.02
+  const measure = (r: Run): Run => {
+    if (r.status !== 'pending') return r
     const x = r.coded!
     const cavities = [0, 1]
     return {
       ...r,
       status: 'done',
       results: {
-        weight: cavities.map((c) => round(DEMO_MODEL.weight(x, c) + NOISE.weight * normal(random), 0.01)),
+        weight: cavities.map((c) => round(DEMO_MODEL.weight(x, c) + dayShift(r) + NOISE.weight * normal(random), 0.01)),
         dimension: cavities.map((c) => round(DEMO_MODEL.dimension(x, c) + NOISE.dimension * normal(random), 0.001)),
         flash: [Math.min(5, Math.max(1, Math.round(DEMO_MODEL.flash(x) + NOISE.flash * normal(random))))],
       },
       notes: r.order === 1 ? 'Purged 10 shots after material change before collecting.' : r.order === 9 ? 'Short shot on first shot after the change; discarded.' : '',
     }
-  })
+  }
+  s.runs = s.runs.map(measure)
+  // Stage 2: the center points showed curvature and D was aliased with ABC, so fold over…
+  s = previewGrowth(s, { kind: 'foldover', centerPoints: 2, randomize: true, seed: 4472 }, now).study
+  s.runs = s.runs.map(measure)
+  // Stage 3: …then add face-centered axial points to fit the curvature.
+  s = previewGrowth(s, { kind: 'axial', alpha: 'face-centered', centerPoints: 2, randomize: true, seed: 4473 }, now).study
+  s.runs = s.runs.map(measure)
 
   s.analysis = {
     series: {
