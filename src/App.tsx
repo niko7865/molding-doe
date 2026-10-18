@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { SECTIONS, type SectionId } from './app/sections'
 import { useWorkspace } from './study/useWorkspace'
+import { DesignPanel } from './ui/DesignPanel'
+import { RunPanel } from './ui/RunPanel'
 import { StudyPanel } from './ui/StudyPanel'
 
 function App() {
@@ -10,11 +12,11 @@ function App() {
 
   return (
     <div className="shell">
-      <header className="topbar">
+      <header className="topbar no-print">
         <h1>Molding DOE</h1>
         {ws.study && <span className="muted">{ws.study.name || 'Untitled study'}</span>}
       </header>
-      <nav className="steps" aria-label="Workflow">
+      <nav className="steps no-print" aria-label="Workflow">
         {SECTIONS.map((s, i) => (
           <button
             key={s.id}
@@ -30,6 +32,10 @@ function App() {
       <main>
         {active === 'study' ? (
           <StudyPanel ws={ws} />
+        ) : active === 'design' && ws.study ? (
+          <DesignPanel ws={ws} study={ws.study} />
+        ) : active === 'run' && ws.study ? (
+          <RunPanel ws={ws} study={ws.study} />
         ) : (
           <section className="card">
             <h2>{section.label}</h2>
