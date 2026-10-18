@@ -10,6 +10,8 @@ interface Props {
   onChange: (metric: number | undefined) => void
   min?: number
   integer?: boolean
+  /** Keep the label for screen readers only, e.g. inside a table with column headers. */
+  hideLabel?: boolean
 }
 
 function format(v: number | undefined, q: Quantity, units: UnitSystem): string {
@@ -25,7 +27,7 @@ function represents(text: string, value: number | undefined, q: Quantity, units:
 }
 
 /** A number input that shows and accepts the user's unit system and reports metric values. */
-export function NumberField({ label, value, quantity, units, onChange, min, integer }: Props) {
+export function NumberField({ label, value, quantity, units, onChange, min, integer, hideLabel }: Props) {
   const [text, setText] = useState(() => format(value, quantity, units))
 
   // When the stored value or unit system changes from outside this field, re-format the text,
@@ -39,7 +41,7 @@ export function NumberField({ label, value, quantity, units, onChange, min, inte
   const unit = unitLabel(quantity, units)
   return (
     <label className="field">
-      <span>
+      <span className={hideLabel ? 'sr-only' : undefined}>
         {label}
         {unit && <span className="unit"> ({unit})</span>}
       </span>

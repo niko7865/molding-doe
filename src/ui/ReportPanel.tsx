@@ -8,9 +8,12 @@ import { describeDesign } from '../study/design'
 import type { Study } from '../study/schema'
 import { unitLabel } from '../study/units'
 import type { Workspace } from '../study/useWorkspace'
+import { GUIDE_STUDIES, statusOf } from '../guide/info'
 import { EffectCharts, FactorPlots, ModelSummary, ResidualPlots } from './AnalyzePanel'
 import { fmt } from './chartUtils'
 import { formatValue } from './format'
+import { GuideResult } from './GuidePanel'
+import { guideSummary } from './guideText'
 
 const LETTERS = 'ABCDEFGHJKLMNOP'
 const KIND_LABEL = { continuous: 'Measurement', rating: 'Rating 1–5', passfail: 'Pass/fail count' } as const
@@ -129,7 +132,7 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
   const defaults = goals.length ? goals : all.filter((s) => s.stat !== 'cavity').map((s) => s.key)
   const [picked, setPicked] = useState<string[] | null>(null)
   const keys = picked ?? defaults
-  const [include, setInclude] = useState({ runs: true, analysis: true, optimum: true })
+  const [include, setInclude] = useState({ guide: true, runs: true, analysis: true, optimum: true })
   const names = useMemo(() => factorNames(study), [study])
   const [printed] = useState(() => new Date().toLocaleDateString())
   const done = study.runs.filter((r) => r.status === 'done').length
@@ -163,6 +166,7 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
           <div className="terms">
             {(
               [
+                ['guide', 'Pre-DOE studies'],
                 ['runs', 'Run table'],
                 ['analysis', 'Analysis'],
                 ['optimum', 'Optimum and confirmation'],
@@ -204,10 +208,12 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
           )}
         </header>
 
-        <section className="report-section">
-          <h2>Pre-DOE studies</h2>
-          <p className="muted">No pre-DOE studies are recorded in this study.</p>
-        </section>
+        {include.guide && (
+          <section className="report-section">
+            <h2>Pre-DOE studies</h2>
+            <GuideReport study={study} />
+          </section>
+        )}
 
         <section className="report-section">
           <h2>Factors and responses</h2>
@@ -311,6 +317,47 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
           </section>
         )}
       </article>
+    </>
+  )
+}
+
+function GuideReport({ study }: { study: Study }) {
+  const statuses = GUIDE_STUDIES.map((g) => ({ ...g, status: statusOf(study, g.key) }))
+  const notDone = statuses.filter((g) => g.status !== 'done')
+  return (
+    <>
+      <div className="table-wrap">
+        <table>
+          <tbody>
+            {statuses.map((g) => (
+              <tr key={g.key}>
+                <td>{g.title}</td>
+                <td>
+                  <span className={`status-tag ${g.status}`}>{g.status === 'done' ? 'Done' : g.status === 'skipped' ? 'Skipped' : 'Not done'}</span>
+                </td>
+                <td className="wrap">
+                  {g.status === 'done' ? guideSummary(study, g.key) : ''}
+                  {study.guide?.[g.key]?.notes ? ` ${study.guide[g.key]!.notes}` : ''}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {notDone.length > 0 && (
+        <p className="banner info">
+          {notDone.length} of 6 pre-DOE studies {notDone.length === 1 ? 'was' : 'were'} skipped or not done: {notDone.map((g) => g.title.toLowerCase()).join(', ')}. The DOE results hold only for the process as it was run.
+        </p>
+      )}
+      <div className="charts">
+        {statuses
+          .filter((g) => g.status === 'done')
+          .map((g) => (
+            <div key={g.key}>
+              <GuideResult study={study} k={g.key} />
+            </div>
+          ))}
+      </div>
     </>
   )
 }

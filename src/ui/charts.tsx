@@ -29,10 +29,20 @@ interface Hover {
   text: ReactNode
 }
 
-function Frame({ height, title, children, hover, desc }: { height: number; title: string; children: ReactNode; hover: Hover | null; desc?: string }) {
+function Frame({ height, title, children, hover, desc, legend }: { height: number; title: string; children: ReactNode; hover: Hover | null; desc?: string; legend?: [string, string] }) {
   return (
     <figure className="chart">
       <figcaption>{title}</figcaption>
+      {legend && (
+        <div className="legend">
+          <span>
+            <i className="swatch dot-swatch s1" /> {legend[0]}
+          </span>
+          <span>
+            <i className="swatch dot-swatch s2" /> {legend[1]}
+          </span>
+        </div>
+      )}
       <div className="chart-box">
         <svg viewBox={`0 0 ${W} ${height}`} role="img" aria-label={desc ?? title}>
           {children}
@@ -94,9 +104,24 @@ export interface BarItem {
 }
 
 /** Horizontal bars, largest first, with a reference line (Pareto of effects). */
-export function ParetoChart({ title, items, reference, referenceLabel, valueLabel }: { title: string; items: BarItem[]; reference?: number; referenceLabel?: string; valueLabel: string }) {
+export function ParetoChart({
+  title,
+  items,
+  reference,
+  referenceLabel,
+  valueLabel,
+  keepOrder,
+}: {
+  title: string
+  items: BarItem[]
+  reference?: number
+  referenceLabel?: string
+  valueLabel: string
+  /** Keep the given order instead of sorting largest first. */
+  keepOrder?: boolean
+}) {
   const [hover, setHover] = useState<Hover | null>(null)
-  const sorted = [...items].sort((a, b) => b.value - a.value)
+  const sorted = keepOrder ? items : [...items].sort((a, b) => b.value - a.value)
   const row = 22
   const top = PAD.top + 14
   // Room for the longest label (about 6px per character at 11px), within reason.
@@ -143,6 +168,8 @@ export interface ScatterPoint {
   y: number
   label?: string
   highlight?: boolean
+  /** Second categorical series (drawn in series-2 color). */
+  group2?: boolean
 }
 
 /** Points with optional labels, a fitted reference line through given points, and a zero line. */
@@ -154,6 +181,13 @@ export function ScatterChart({
   line,
   zeroLine,
   labelHighlighted,
+  connect,
+  band,
+  vline,
+  legend,
+  xTicks,
+  tooltip,
+  box,
 }: {
   title: string
   points: ScatterPoint[]
@@ -162,27 +196,68 @@ export function ScatterChart({
   line?: [ScatterPoint, ScatterPoint]
   zeroLine?: boolean
   labelHighlighted?: boolean
+  /** Join the points in x order. */
+  connect?: boolean
+  /** Shaded y range, e.g. a spec. */
+  band?: [number | undefined, number | undefined]
+  /** Marked x value, e.g. a suggested setting. */
+  vline?: { x: number; label: string }
+  /** Names for the two point series. */
+  legend?: [string, string]
+  /** Fixed x tick values (e.g. cavity numbers). */
+  xTicks?: number[]
+  tooltip?: (p: ScatterPoint) => string
+  /** Outlined region, e.g. a suggested range for two factors. */
+  box?: { x: [number, number]; y: [number, number]; label: string }
 }) {
   const [hover, setHover] = useState<Hover | null>(null)
   const height = 300
   if (!points.length) return null
-  const [xl, xh] = extent(points.map((p) => p.x))
-  const [yl, yh] = extent([...points.map((p) => p.y), ...(zeroLine ? [0] : [])])
+  const bandValues = (band ?? []).flatMap((v) => (v === undefined ? [] : [v]))
+  const [xl, xh] = extent([...points.map((p) => p.x), ...(vline ? [vline.x] : [])])
+  const [yl, yh] = extent([...points.map((p) => p.y), ...(zeroLine ? [0] : []), ...bandValues])
   const x = scale(xl, xh, PAD.left, W - PAD.right)
   const y = scale(yl, yh, height - PAD.bottom, PAD.top)
-  const xt = ticks(xl, xh)
+  const xt = xTicks ?? ticks(xl, xh)
   const yt = ticks(yl, yh)
   const clampY = (v: number) => Math.max(PAD.top, Math.min(height - PAD.bottom, v))
+  const ordered = connect ? [...points].sort((a, b) => a.x - b.x) : []
   return (
-    <Frame title={title} height={height} hover={hover}>
+    <Frame title={title} height={height} hover={hover} legend={legend}>
+      {band && (
+        <rect
+          x={PAD.left}
+          width={W - PAD.right - PAD.left}
+          y={y(band[1] ?? yh)}
+          height={Math.max(0, y(band[0] ?? yl) - y(band[1] ?? yh))}
+          className="band"
+        />
+      )}
       <YAxis y={y} ticks={yt} x0={PAD.left} x1={W - PAD.right} label={yLabel} />
       <XAxis x={x} ticks={xt} y0={height - PAD.bottom} label={xLabel} height={height} />
+      {vline && (
+        <g>
+          <line x1={x(vline.x)} x2={x(vline.x)} y1={PAD.top} y2={height - PAD.bottom} className="ref" />
+          <text x={x(vline.x) + 4} y={PAD.top + 10} className="ref-label">
+            {vline.label}
+          </text>
+        </g>
+      )}
+      {box && (
+        <g>
+          <rect x={x(box.x[0])} y={y(box.y[1])} width={x(box.x[1]) - x(box.x[0])} height={y(box.y[0]) - y(box.y[1])} className="box" />
+          <text x={x(box.x[0]) + 4} y={y(box.y[1]) - 4} className="ref-label">
+            {box.label}
+          </text>
+        </g>
+      )}
+      {connect && <polyline points={ordered.map((p) => `${x(p.x)},${y(p.y)}`).join(' ')} className="line s1" />}
       {zeroLine && <line x1={PAD.left} x2={W - PAD.right} y1={y(0)} y2={y(0)} className="ref" />}
       {line && <line x1={x(line[0].x)} x2={x(line[1].x)} y1={clampY(y(line[0].y))} y2={clampY(y(line[1].y))} className="fit-line" />}
       {points.map((p, i) => (
-        <g key={i} onMouseEnter={() => setHover({ x: x(p.x), y: y(p.y), text: <>{p.label ? `${p.label}: ` : ''}{fmt(p.y)} at {fmt(p.x)}</> })} onMouseLeave={() => setHover(null)}>
+        <g key={i} onMouseEnter={() => setHover({ x: x(p.x), y: y(p.y), text: tooltip ? tooltip(p) : <>{p.label ? `${p.label}: ` : ''}{fmt(p.y)} at {fmt(p.x)}</> })} onMouseLeave={() => setHover(null)}>
           <circle cx={x(p.x)} cy={y(p.y)} r={10} fill="transparent" />
-          <circle cx={x(p.x)} cy={y(p.y)} r={p.highlight ? 5 : 4} className={p.highlight ? 'dot' : 'dot muted-dot'} />
+          <circle cx={x(p.x)} cy={y(p.y)} r={p.highlight ? 5 : 4} className={p.group2 ? 'dot g2' : p.highlight ? 'dot' : 'dot muted-dot'} />
           {labelHighlighted && p.highlight && p.label && (
             <text x={x(p.x) - 7} y={y(p.y)} dy="0.32em" textAnchor="end" className="point-label">
               {p.label}

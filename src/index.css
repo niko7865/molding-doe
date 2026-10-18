@@ -177,6 +177,9 @@ details summary { cursor: pointer; min-height: 32px; }
 .chart .ref-label { fill: var(--text); }
 .chart .dot { fill: var(--viz-1); stroke: var(--surface); stroke-width: 2; }
 .chart .muted-dot { fill: var(--viz-muted); }
+.chart .dot.g2 { fill: var(--viz-2); }
+.chart .band { fill: var(--info-bg); }
+.chart .box { fill: none; stroke: var(--text); stroke-dasharray: 5 3; stroke-width: 1.5; }
 .chart .fit-line { stroke: var(--viz-axis); stroke-width: 1.5; stroke-dasharray: 6 4; }
 .chart .line { fill: none; stroke-width: 2; }
 .chart .line.s1 { stroke: var(--viz-1); }
@@ -193,10 +196,25 @@ details summary { cursor: pointer; min-height: 32px; }
 .swatch { display: inline-block; width: 14px; height: 4px; border-radius: 2px; }
 .swatch.s1 { background: var(--viz-1); }
 .swatch.s2 { background: var(--viz-2); }
+.swatch.dot-swatch { width: 10px; height: 10px; border-radius: 50%; }
 .tooltip {
   position: absolute; transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; white-space: nowrap;
   background: var(--text); color: var(--surface); font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; z-index: 2;
 }
+
+/* Pre-DOE guide */
+.guide { display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 760px) { .guide { grid-template-columns: minmax(0, 1fr); } }
+.guide-nav ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.guide-item { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; padding: 8px 10px; font: inherit; text-align: left; color: var(--text); background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.guide-item.active { border-color: var(--accent); background: var(--info-bg); }
+.status-tag { flex: none; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); }
+.status-tag.done { color: var(--accent); border-color: var(--accent); }
+.status-tag.skipped { color: var(--danger); border-color: var(--danger); }
+.suggestion { padding: 10px 14px; border-radius: 8px; background: var(--info-bg); border-left: 4px solid var(--accent); }
+.suggestion.warn-box { background: var(--danger-bg); border-left-color: var(--danger); }
+table.entry td { padding: 3px 6px; vertical-align: middle; }
+table.entry input, table.entry select { min-width: 90px; }
 
 /* Report */
 .report header { display: grid; gap: 4px; }

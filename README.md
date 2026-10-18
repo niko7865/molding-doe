@@ -24,6 +24,7 @@ Pushes to `main` deploy to GitHub Pages at https://niko7865.github.io/molding-do
   - `optimize/` - desirability optimizer and confirmation-run check.
   - `model/textbook.test.ts` pins results to worked examples from Montgomery, *Design and Analysis of Experiments*.
 - `src/study/` - the study file: schema, units, factor presets and press limits, save/open, merge of tablet results, the browser's auto-saved working copies, analysis glue and the demo study.
+- `src/guide/` - the six pre-DOE studies (viscosity curve, cavity balance, pressure drop, gate seal, cooling time, process window): their math, suggestions and status.
 - `src/export/` - CSV and Excel (.xlsx) export of the run table, written without a library.
 - `src/ui/` - React components.
 - `src/app/` - app-level structure shared by the UI.

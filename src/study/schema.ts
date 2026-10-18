@@ -106,6 +106,40 @@ export const analysisSchema = z.object({
   confirmation: z.object({ runs: z.number().int().min(1), values: z.record(z.string(), z.array(z.number().nullable())) }).optional(),
 })
 
+const num = z.number().nullable()
+const guideBase = {
+  /** Deliberately not done; flagged on the report. */
+  skipped: z.boolean().optional(),
+  notes: z.string().optional(),
+}
+
+/**
+ * Pre-DOE studies (scientific molding). All values metric. Pressures are plastic pressures:
+ * readings are multiplied by `ratio`, the intensification ratio (1 on presses that show plastic pressure).
+ */
+export const guideSchema = z.object({
+  viscosity: z
+    .object({ ...guideBase, ratio: z.number().positive(), rows: z.array(z.object({ speed: num, fillTime: num, pressure: num })) })
+    .optional(),
+  /** Fill-only part weights: one row per shot, one value per cavity. */
+  balance: z.object({ ...guideBase, rows: z.array(z.array(num)) }).optional(),
+  pressureDrop: z.object({ ...guideBase, ratio: z.number().positive(), rows: z.array(z.object({ segment: z.string(), pressure: num })) }).optional(),
+  gateSeal: z.object({ ...guideBase, rows: z.array(z.object({ time: num, weight: num })) }).optional(),
+  cooling: z
+    .object({
+      ...guideBase,
+      label: z.string(),
+      quantity,
+      specLow: z.number().optional(),
+      specHigh: z.number().optional(),
+      rows: z.array(z.object({ time: num, value: num })),
+    })
+    .optional(),
+  window: z
+    .object({ ...guideBase, rows: z.array(z.object({ melt: num, hold: num, outcome: z.enum(['good', 'short', 'flash', 'sink', 'other']) })) })
+    .optional(),
+})
+
 /** How the runs were generated, so they can be explained, analyzed and regenerated. */
 export const designSpecSchema = z.object({
   type: z.enum(['full-factorial', 'fractional-factorial', 'plackett-burman', 'box-behnken', 'central-composite']),
@@ -138,6 +172,7 @@ export const studySchema = z.object({
   /** Set once runs are generated. */
   design: designSpecSchema.optional(),
   analysis: analysisSchema.optional(),
+  guide: guideSchema.optional(),
   runs: z.array(runSchema),
 })
 
@@ -148,6 +183,7 @@ export type Run = z.infer<typeof runSchema>
 export type DesignSpec = z.infer<typeof designSpecSchema>
 export type SeriesSettings = z.infer<typeof seriesSettingsSchema>
 export type Analysis = z.infer<typeof analysisSchema>
+export type Guide = z.infer<typeof guideSchema>
 export type Study = z.infer<typeof studySchema>
 
 export function newId(): string {

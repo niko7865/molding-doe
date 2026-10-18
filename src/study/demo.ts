@@ -17,6 +17,67 @@ export const DEMO_MODEL = {
   flash: ([a, b]: number[]) => 1.9 + 0.55 * a + 0.9 * b + 0.3 * a * b,
 }
 
+/** Pre-DOE studies as a process engineer would have recorded them on this mold. */
+const DEMO_GUIDE: Study['guide'] = {
+  viscosity: {
+    ratio: 1,
+    notes: 'Fill to about 95% with hold off; plastic pressure from the press screen.',
+    rows: [
+      [10, 3.9, 520],
+      [20, 2.0, 690],
+      [35, 1.18, 840],
+      [50, 0.84, 1010],
+      [70, 0.61, 1240],
+      [90, 0.48, 1500],
+      [110, 0.4, 1760],
+    ].map(([speed, fillTime, pressure]) => ({ speed, fillTime, pressure })),
+  },
+  balance: {
+    rows: [
+      [17.62, 17.21],
+      [17.58, 17.25],
+      [17.65, 17.19],
+      [17.6, 17.24],
+      [17.63, 17.22],
+    ],
+  },
+  pressureDrop: {
+    ratio: 1,
+    rows: [
+      { segment: 'Nozzle (air shot)', pressure: 180 },
+      { segment: 'End of runner', pressure: 520 },
+      { segment: 'Past the gate', pressure: 860 },
+      { segment: 'Part at transfer', pressure: 1240 },
+    ],
+  },
+  gateSeal: {
+    rows: [1, 2, 3, 4, 5, 6, 7, 8].map((time, i) => ({ time, weight: [36.9, 37.45, 37.82, 38.05, 38.17, 38.19, 38.2, 38.19][i] })),
+  },
+  cooling: {
+    label: 'Boss height',
+    quantity: 'length',
+    specLow: 52.4,
+    specHigh: 52.5,
+    rows: [6, 8, 10, 12, 14, 16, 18].map((time, i) => ({ time, value: [52.31, 52.36, 52.4, 52.43, 52.44, 52.45, 52.45][i] })),
+  },
+  window: {
+    rows: [
+      [220, 400, 'short'],
+      [220, 550, 'short'],
+      [220, 700, 'sink'],
+      [230, 450, 'good'],
+      [230, 650, 'good'],
+      [245, 400, 'sink'],
+      [245, 550, 'good'],
+      [245, 700, 'flash'],
+      [260, 450, 'good'],
+      [260, 650, 'good'],
+      [270, 550, 'flash'],
+      [270, 400, 'sink'],
+    ].map(([melt, hold, outcome]) => ({ melt: melt as number, hold: hold as number, outcome: outcome as 'good' | 'short' | 'flash' | 'sink' })),
+  },
+}
+
 const NOISE = { weight: 0.02, dimension: 0.004, flash: 0.35 }
 
 function normal(random: () => number): number {
@@ -44,6 +105,7 @@ export function demoStudy(now = new Date()): Study {
       { id: 'flash', name: 'Flash', kind: 'rating', quantity: 'none', perCavity: false },
     ],
   }
+  s.guide = DEMO_GUIDE
   const draft: DesignDraft = {
     type: 'central-composite',
     alpha: 'face-centered',

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { SECTIONS, type SectionId } from './app/sections'
 import { useWorkspace } from './study/useWorkspace'
 import { AnalyzePanel } from './ui/AnalyzePanel'
+import { GuidePanel } from './ui/GuidePanel'
 import { DesignPanel } from './ui/DesignPanel'
 import { ReportPanel } from './ui/ReportPanel'
 import { RunPanel } from './ui/RunPanel'
@@ -34,6 +35,8 @@ function App() {
       <main>
         {active === 'study' ? (
           <StudyPanel ws={ws} />
+        ) : active === 'guide' && ws.study ? (
+          <GuidePanel ws={ws} study={ws.study} />
         ) : active === 'design' && ws.study ? (
           <DesignPanel ws={ws} study={ws.study} />
         ) : active === 'run' && ws.study ? (
