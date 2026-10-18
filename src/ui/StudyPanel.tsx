@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from 'react'
 import { syncResults } from '../study/design'
 import { FILE_EXTENSION } from '../study/file'
 import type { Conflict } from '../study/merge'
-import type { MachineProfile, Study } from '../study/schema'
+import { doeEnabled, type MachineProfile, type Study } from '../study/schema'
 import { toDisplay, unitLabel, type Quantity } from '../study/units'
 import type { Workspace } from '../study/useWorkspace'
 import { NumberField } from './NumberField'
@@ -69,7 +69,7 @@ function StartScreen({ ws }: { ws: Workspace }) {
             Open the demo study
           </button>
         </div>
-        <p className="muted small">The demo is a finished two-cavity housing study: pre-DOE studies, a screening design grown into a response surface in three stages, and confirmation runs.</p>
+        <p className="muted small">The demo is a finished two-cavity housing study: all six molding studies, then a screening DOE grown into a response surface in three stages, and confirmation runs.</p>
       </section>
 
       <section className="card">
@@ -184,6 +184,18 @@ function StudyEditor({ ws, study }: { ws: Workspace; study: Study }) {
           </fieldset>
         </div>
         <p className="muted small">Values are stored in metric, so switching units only changes how they are shown.</p>
+      </section>
+
+      <section className="card">
+        <h2>DOE stage</h2>
+        <label className="check">
+          <input type="checkbox" checked={doeEnabled(study)} onChange={(e) => set({ doe: e.target.checked })} />
+          Add a designed experiment (DOE) after the molding studies
+        </label>
+        <p className="muted small">
+          Optional. Leave it off when the six molding studies give you the process. On, it adds Design, Run and Analyze steps and DOE sections
+          to the report. Switching it off hides them without deleting any runs or analysis.
+        </p>
       </section>
 
       <section className="card">

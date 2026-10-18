@@ -6,9 +6,9 @@ import { factorFromPreset } from './presets'
 import { createStudy, type Run, type Study } from './schema'
 
 /**
- * A worked example: a two-cavity housing on a 180 t press. Melt temperature, hold pressure, hold
- * time and mold temperature were screened with a half fraction, folded over, then grown into a
- * face-centered central composite design in three blocks.
+ * A worked example: a two-cavity housing on a 180 t press. After the six molding studies, melt
+ * temperature, hold pressure, hold time and mold temperature were screened with a half fraction,
+ * folded over, then grown into a face-centered central composite design in three blocks.
  * The results come from a known model plus noise, so the demo doubles as an end-to-end test.
  */
 
@@ -19,7 +19,7 @@ export const DEMO_MODEL = {
   flash: ([a, b]: number[]) => 1.9 + 0.55 * a + 0.9 * b + 0.3 * a * b,
 }
 
-/** Pre-DOE studies as a process engineer would have recorded them on this mold. */
+/** The six molding studies as a process engineer would have recorded them on this mold. */
 const DEMO_GUIDE: Study['guide'] = {
   viscosity: {
     ratio: 1,
@@ -100,6 +100,7 @@ export function demoStudy(now = new Date()): Study {
     goal: 'Hold the 52.45 mm boss height on both cavities without flash, with a fully packed part.',
     cavities: 2,
     machine: { name: 'Press 7 (180 t)', maxInjectionPressure: 1800, maxInjectionSpeed: 200, clampForce: 1800 },
+    doe: true,
     factors,
     responses: [
       { id: 'weight', name: 'Part weight', kind: 'continuous', quantity: 'mass', perCavity: true },

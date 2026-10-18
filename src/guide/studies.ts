@@ -1,7 +1,7 @@
 import type { Guide } from '../study/schema'
 
 /**
- * The six pre-DOE studies. Each returns plain numbers plus a suggestion; all advisory.
+ * The six scientific molding studies. Each returns plain numbers plus a suggestion; all advisory.
  * Inputs and outputs are metric; the UI converts for display.
  */
 
@@ -168,7 +168,7 @@ export function coolingTime(c: NonNullable<Guide['cooling']>): CoolingResult {
 export interface WindowResult {
   good: { melt: number; hold: number }[]
   bad: { melt: number; hold: number; outcome: string }[]
-  /** Box around the good settings, shrunk until no defective setting is inside: a starting point for DOE ranges. */
+  /** Box around the good settings, shrunk until no defective setting is inside: the process window, and a starting point for DOE ranges. */
   melt: [number, number] | null
   hold: [number, number] | null
   /** The box had to shrink to leave defects out. */

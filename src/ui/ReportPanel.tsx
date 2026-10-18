@@ -5,7 +5,7 @@ import { buildXlsx } from '../export/xlsx'
 import { aliasStructure, definingRelationNames } from '../stats'
 import { analyzeSeries, confirmStudy, decode, factorNames, goalsInUse, seriesList, type Series } from '../study/analysis'
 import { describeDesign } from '../study/design'
-import type { Study } from '../study/schema'
+import { doeEnabled, type Study } from '../study/schema'
 import { unitLabel } from '../study/units'
 import type { Workspace } from '../study/useWorkspace'
 import { GUIDE_STUDIES, statusOf } from '../guide/info'
@@ -136,6 +136,7 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
   const names = useMemo(() => factorNames(study), [study])
   const [printed] = useState(() => new Date().toLocaleDateString())
   const done = study.runs.filter((r) => r.status === 'done').length
+  const doe = doeEnabled(study)
   const design = study.design
   const toggle = (key: string) => setPicked(keys.includes(key) ? keys.filter((k) => k !== key) : all.map((s) => s.key).filter((k) => k === key || keys.includes(k)))
 
@@ -145,41 +146,47 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
         <div className="row spread">
           <h2>Report</h2>
           <div className="row">
-            <button className="btn" disabled={!study.runs.length} onClick={() => downloadBlob(toCsv(runTable(study)), 'text/csv;charset=utf-8', `${baseName(study)} runs.csv`)}>
-              Download CSV
-            </button>
-            <button
-              className="btn"
-              disabled={!study.runs.length}
-              onClick={() => downloadBlob(buildXlsx(workbook(study)) as Uint8Array<ArrayBuffer>, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `${baseName(study)}.xlsx`)}
-            >
-              Download Excel
-            </button>
+            {doe && (
+              <>
+                <button className="btn" disabled={!study.runs.length} onClick={() => downloadBlob(toCsv(runTable(study)), 'text/csv;charset=utf-8', `${baseName(study)} runs.csv`)}>
+                  Download CSV
+                </button>
+                <button
+                  className="btn"
+                  disabled={!study.runs.length}
+                  onClick={() => downloadBlob(buildXlsx(workbook(study)) as Uint8Array<ArrayBuffer>, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `${baseName(study)}.xlsx`)}
+                >
+                  Download Excel
+                </button>
+              </>
+            )}
             <button className="btn primary" onClick={() => window.print()}>
               Print or save as PDF
             </button>
           </div>
         </div>
-        <p className="muted small">The CSV and Excel files hold the run table in run order with setpoints and raw results, for cross-checking in Minitab or Excel.</p>
+        {doe && <p className="muted small">The CSV and Excel files hold the run table in run order with setpoints and raw results, for cross-checking in Minitab or Excel.</p>}
         <fieldset className="field">
           <legend>Include</legend>
           <div className="terms">
             {(
               [
-                ['guide', 'Pre-DOE studies'],
+                ['guide', 'Molding studies'],
                 ['runs', 'Run table'],
                 ['analysis', 'Analysis'],
                 ['optimum', 'Optimum and confirmation'],
               ] as const
-            ).map(([k, label]) => (
-              <label key={k} className="check">
-                <input type="checkbox" checked={include[k]} onChange={(e) => setInclude({ ...include, [k]: e.target.checked })} />
-                {label}
-              </label>
-            ))}
+            )
+              .filter(([k]) => doe || k === 'guide')
+              .map(([k, label]) => (
+                <label key={k} className="check">
+                  <input type="checkbox" checked={include[k]} onChange={(e) => setInclude({ ...include, [k]: e.target.checked })} />
+                  {label}
+                </label>
+              ))}
           </div>
         </fieldset>
-        {include.analysis && all.length > 0 && (
+        {doe && include.analysis && all.length > 0 && (
           <fieldset className="field">
             <legend>Responses to analyze</legend>
             <div className="terms">
@@ -199,8 +206,15 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
           <h1>{study.name || 'Untitled study'}</h1>
           <p className="muted small">
             Printed {printed} · {study.units === 'metric' ? 'Metric' : 'Imperial'} units · {study.cavities} cavit{study.cavities === 1 ? 'y' : 'ies'}
-            {study.machine?.name ? ` · ${study.machine.name}` : ''}
           </p>
+          {study.machine && (
+            <p className="small">
+              Press: {study.machine.name || 'unnamed'}
+              {study.machine.maxInjectionPressure ? ` · max injection pressure ${formatValue(study.machine.maxInjectionPressure, 'pressure', study)}` : ''}
+              {study.machine.maxInjectionSpeed ? ` · max injection speed ${formatValue(study.machine.maxInjectionSpeed, 'speed', study)}` : ''}
+              {study.machine.clampForce ? ` · clamp ${formatValue(study.machine.clampForce, 'force', study)}` : ''}
+            </p>
+          )}
           {study.goal && (
             <p>
               <strong>Goal:</strong> {study.goal}
@@ -210,95 +224,91 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
 
         {include.guide && (
           <section className="report-section">
-            <h2>Pre-DOE studies</h2>
-            <GuideReport study={study} />
+            <h2>Molding studies</h2>
+            <GuideReport study={study} doe={doe} />
           </section>
         )}
 
-        <section className="report-section">
-          <h2>Factors and responses</h2>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th />
-                  <th>Factor</th>
-                  <th className="num">Low</th>
-                  <th className="num">High</th>
-                  <th>Note</th>
-                </tr>
-              </thead>
-              <tbody>
-                {study.factors.map((f, j) => (
-                  <tr key={f.id}>
-                    <td>{LETTERS[j]}</td>
-                    <td>{f.name}</td>
-                    <td className="num">{formatValue(f.low, f.quantity, study)}</td>
-                    <td className="num">{formatValue(f.high, f.quantity, study)}</td>
-                    <td>{f.hardToChange ? 'Hard to change' : ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Response</th>
-                  <th>Type</th>
-                  <th>Unit</th>
-                  <th>Measured</th>
-                </tr>
-              </thead>
-              <tbody>
-                {study.responses.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.name}</td>
-                    <td>{KIND_LABEL[r.kind]}</td>
-                    <td>{r.kind === 'passfail' ? `defective of ${r.shots}` : unitLabel(r.quantity, study.units) || '–'}</td>
-                    <td>{r.perCavity && study.cavities > 1 ? 'Per cavity' : 'Per shot'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {study.machine && (
-            <p className="small">
-              Press: {study.machine.name || 'unnamed'}
-              {study.machine.maxInjectionPressure ? ` · max injection pressure ${formatValue(study.machine.maxInjectionPressure, 'pressure', study)}` : ''}
-              {study.machine.maxInjectionSpeed ? ` · max injection speed ${formatValue(study.machine.maxInjectionSpeed, 'speed', study)}` : ''}
-              {study.machine.clampForce ? ` · clamp ${formatValue(study.machine.clampForce, 'force', study)}` : ''}
-            </p>
-          )}
-        </section>
+        {doe && (
+          <>
+            <section className="report-section">
+              <h2>Factors and responses</h2>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th />
+                      <th>Factor</th>
+                      <th className="num">Low</th>
+                      <th className="num">High</th>
+                      <th>Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {study.factors.map((f, j) => (
+                      <tr key={f.id}>
+                        <td>{LETTERS[j]}</td>
+                        <td>{f.name}</td>
+                        <td className="num">{formatValue(f.low, f.quantity, study)}</td>
+                        <td className="num">{formatValue(f.high, f.quantity, study)}</td>
+                        <td>{f.hardToChange ? 'Hard to change' : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Response</th>
+                      <th>Type</th>
+                      <th>Unit</th>
+                      <th>Measured</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {study.responses.map((r) => (
+                      <tr key={r.id}>
+                        <td>{r.name}</td>
+                        <td>{KIND_LABEL[r.kind]}</td>
+                        <td>{r.kind === 'passfail' ? `defective of ${r.shots}` : unitLabel(r.quantity, study.units) || '–'}</td>
+                        <td>{r.perCavity && study.cavities > 1 ? 'Per cavity' : 'Per shot'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
 
-        <section className="report-section">
-          <h2>Design</h2>
-          <p>
-            {describeDesign(study)}. {done} of {study.runs.length} runs done
-            {design ? (design.randomize ? `, run in random order (seed ${design.seed}).` : ', run in standard order.') : '.'}
-          </p>
-          {design?.type === 'fractional-factorial' && design.generators && (
-            <p className="small">
-              Generators {design.generators.join(', ')}; defining relation I = {definingRelationNames(design.generators).join(' = ')}. Aliases:{' '}
-              {aliasStructure(design.factorIds.length, design.generators)
-                .filter((r) => r.aliases.length)
-                .map((r) => `${r.effect} = ${r.aliases.join(' = ')}`)
-                .join('; ')}
-              .
-            </p>
-          )}
-        </section>
+            <section className="report-section">
+              <h2>Design</h2>
+              <p>
+                {describeDesign(study)}. {done} of {study.runs.length} runs done
+                {design ? (design.randomize ? `, run in random order (seed ${design.seed}).` : ', run in standard order.') : '.'}
+              </p>
+              {design?.type === 'fractional-factorial' && design.generators && (
+                <p className="small">
+                  Generators {design.generators.join(', ')}; defining relation I = {definingRelationNames(design.generators).join(' = ')}. Aliases:{' '}
+                  {aliasStructure(design.factorIds.length, design.generators)
+                    .filter((r) => r.aliases.length)
+                    .map((r) => `${r.effect} = ${r.aliases.join(' = ')}`)
+                    .join('; ')}
+                  .
+                </p>
+              )}
+            </section>
+          </>
+        )}
 
-        {include.runs && study.runs.length > 0 && (
+        {doe && include.runs && study.runs.length > 0 && (
           <section className="report-section">
             <h2>Runs and results</h2>
             <RunTable study={study} />
           </section>
         )}
 
-        {include.analysis && (
+        {doe && include.analysis && (
           <section className="report-section">
             <h2>Analysis</h2>
             {keys.length === 0 && <p className="muted">No responses selected.</p>}
@@ -310,7 +320,7 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
           </section>
         )}
 
-        {include.optimum && (
+        {doe && include.optimum && (
           <section className="report-section">
             <h2>Optimum and confirmation</h2>
             <OptimumReport study={study} />
@@ -321,7 +331,7 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
   )
 }
 
-function GuideReport({ study }: { study: Study }) {
+function GuideReport({ study, doe }: { study: Study; doe: boolean }) {
   const statuses = GUIDE_STUDIES.map((g) => ({ ...g, status: statusOf(study, g.key) }))
   const notDone = statuses.filter((g) => g.status !== 'done')
   return (
@@ -346,7 +356,8 @@ function GuideReport({ study }: { study: Study }) {
       </div>
       {notDone.length > 0 && (
         <p className="banner info">
-          {notDone.length} of 6 pre-DOE studies {notDone.length === 1 ? 'was' : 'were'} skipped or not done: {notDone.map((g) => g.title.toLowerCase()).join(', ')}. The DOE results hold only for the process as it was run.
+          {notDone.length} of 6 molding studies {notDone.length === 1 ? 'was' : 'were'} skipped or not done: {notDone.map((g) => g.title.toLowerCase()).join(', ')}.{' '}
+          {doe ? 'The DOE results hold only for the process as it was run.' : 'The process has not been checked against what those studies would show.'}
         </p>
       )}
       <div className="charts">

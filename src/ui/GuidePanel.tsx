@@ -13,7 +13,7 @@ import {
   type GuideStatus,
 } from '../guide/studies'
 import { FACTOR_PRESETS, factorFromPreset } from '../study/presets'
-import type { Guide, Study } from '../study/schema'
+import { doeEnabled, type Guide, type Study } from '../study/schema'
 import { toDisplay, unitLabel, type Quantity } from '../study/units'
 import type { Workspace } from '../study/useWorkspace'
 import { fmt } from './chartUtils'
@@ -145,7 +145,7 @@ function ViscosityResultView({ study }: { study: Study }) {
         {r.flatFrom !== null
           ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)}: each faster step changes it by less than ${FLAT_THRESHOLD * 100}%. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
           : r.points.length >= 3
-            ? 'The curve has not leveled off yet. Add faster speeds if the press allows, or treat injection speed as a DOE factor.'
+            ? 'The curve has not leveled off yet. Add faster speeds if the press allows; otherwise use the fastest stable speed, and include injection speed as a factor if you run a DOE.'
             : 'Enter at least three speeds to find the flat region.'}
       </Suggestion>
       {limitedFrom !== undefined && (
@@ -212,7 +212,7 @@ function BalanceResultView({ study }: { study: Study }) {
           ? 'That is within 5%, so the cavities fill alike.'
           : verdict === 'watch'
             ? 'Between 5% and 10%: workable, but analyze cavities separately as well as the mean.'
-            : 'Over 10%: fix the balance (hot runner zones, gate sizes, vents) before running a DOE.'}
+            : 'Over 10%: fix the balance (hot runner zones, gate sizes, vents) before setting the rest of the process.'}
       </Suggestion>
     </>
   )
@@ -266,9 +266,9 @@ function PressureDropResultView({ study }: { study: Study }) {
           ? 'Enter the press’s maximum injection pressure on the Study tab to check for a pressure limit.'
           : `Filling the part takes ${(r.usage * 100).toFixed(0)}% of the press maximum. ${
               r.verdict === 'limited'
-                ? 'The process is pressure-limited: the press can’t hold the set speed. Raise melt temperature, open the gate or runner, or move to a larger press before running a DOE.'
+                ? 'The process is pressure-limited: the press can’t hold the set speed. Raise melt temperature, open the gate or runner, or move to a larger press before going further.'
                 : r.verdict === 'tight'
-                  ? 'There is little headroom; keep injection speed out of the DOE or watch for pressure-limited runs.'
+                  ? 'There is little headroom: watch for pressure-limited shots, and keep injection speed out of any DOE.'
                   : 'There is enough headroom.'
             }`}
         {r.segments.length > 1 &&
@@ -346,7 +346,7 @@ function GateSealResultView({ study }: { study: Study }) {
       <Suggestion tone={r.stillRising ? 'warn' : 'info'}>
         {r.stillRising
           ? 'The weight is still rising at the longest hold time tested, so the gate hasn’t sealed. Add longer hold times.'
-          : `The gate seals at about ${fmt(r.sealTime!)} s (the weight stays within 0.1% of its maximum from there). Use a hold time of about ${fmt(r.suggested!)} s, which adds a margin, and keep hold time out of the DOE or range it above the seal time.`}
+          : `The gate seals at about ${fmt(r.sealTime!)} s (the weight stays within 0.1% of its maximum from there). Use a hold time of about ${fmt(r.suggested!)} s, which adds a margin. If you run a DOE, keep hold time out of it or range it above the seal time.`}
       </Suggestion>
     </>
   )
@@ -484,12 +484,12 @@ function WindowResultView({ study }: { study: Study }) {
         xLabel={`Melt temperature (${unitLabel('temperature', study.units)})`}
         yLabel={`Hold pressure (${unitLabel('pressure', study.units)})`}
         legend={['Good', 'Defect']}
-        box={r.melt && r.hold ? { x: [t(r.melt[0]), t(r.melt[1])], y: [p(r.hold[0]), p(r.hold[1])], label: 'Suggested DOE range' } : undefined}
+        box={r.melt && r.hold ? { x: [t(r.melt[0]), t(r.melt[1])], y: [p(r.hold[0]), p(r.hold[1])], label: 'Process window' } : undefined}
         tooltip={(pt) => `${pt.label} at ${fmt(pt.x)} ${unitLabel('temperature', study.units)}, ${fmt(pt.y)} ${unitLabel('pressure', study.units)}`}
       />
       <Suggestion tone={r.melt && r.hold ? 'info' : 'warn'}>
         {r.melt && r.hold
-          ? `${r.trimmed ? 'Leaving out the defective settings, good parts' : 'Good parts'} span melt temperature ${formatValue(r.melt[0], 'temperature', study)} to ${formatValue(r.melt[1], 'temperature', study)} and hold pressure ${pressureText(r.hold[0], study)} to ${pressureText(r.hold[1], study)}. Use these as the DOE ranges for the two factors.`
+          ? `${r.trimmed ? 'Leaving out the defective settings, good parts' : 'Good parts'} span melt temperature ${formatValue(r.melt[0], 'temperature', study)} to ${formatValue(r.melt[1], 'temperature', study)} and hold pressure ${pressureText(r.hold[0], study)} to ${pressureText(r.hold[1], study)}. Set the process near the middle of this window; with a DOE, use it as the ranges for the two factors.`
           : r.trimmed
             ? 'Defects sit among the good settings, so no defect-free range covers two levels of each factor. Test a finer grid around the good settings.'
             : 'Good parts need to span at least two settings of each factor to suggest a range.'}
@@ -575,7 +575,7 @@ function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
         </div>
       </div>
       <WindowResultView study={{ ...study, guide: { ...study.guide, window: g } }} />
-      {r.melt && r.hold && (
+      {r.melt && r.hold && doeEnabled(study) && (
         <div className="row">
           <button className="btn" disabled={study.runs.length > 0} onClick={apply}>
             Use as DOE ranges for melt temperature and hold pressure
@@ -615,15 +615,17 @@ export function GuideResult({ study, k }: { study: Study; k: GuideKey }) {
 
 export function GuidePanel({ ws, study }: { ws: Workspace; study: Study }) {
   const [active, setActive] = useState<GuideKey>('viscosity')
-  const info = GUIDE_STUDIES.find((s) => s.key === active)!
+  const index = GUIDE_STUDIES.findIndex((s) => s.key === active)
+  const info = GUIDE_STUDIES[index]
+  const next = GUIDE_STUDIES[index + 1]
   const View = VIEWS[active]
   const current = study.guide?.[active]
   const status = statusOf(study, active)
   const setMeta = (p: { skipped?: boolean; notes?: string }) => patchGuide(ws, active, DEFAULTS[active](study) as never, (x) => ({ ...x, ...p }))
   return (
     <div className="guide">
-      <nav className="card guide-nav" aria-label="Pre-DOE studies">
-        <p className="muted small">Advisory studies before the DOE. Skip any that don’t apply; the report shows what was done.</p>
+      <nav className="card guide-nav" aria-label="Molding studies">
+        <p className="muted small">The six scientific molding studies, in the order to run them: each one sets something the next relies on. Skip any that don’t apply; the report shows what was done.</p>
         <ol>
           {GUIDE_STUDIES.map((s) => {
             const st = statusOf(study, s.key)
@@ -656,6 +658,13 @@ export function GuidePanel({ ws, study }: { ws: Workspace; study: Study }) {
           <input type="checkbox" checked={!!current?.skipped} onChange={(e) => setMeta({ skipped: e.target.checked })} />
           Skip this study
         </label>
+        {next && (
+          <div className="row">
+            <button className="btn" onClick={() => setActive(next.key)}>
+              Next: {next.title}
+            </button>
+          </div>
+        )}
       </section>
     </div>
   )
