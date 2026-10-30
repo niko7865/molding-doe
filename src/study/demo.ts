@@ -4,9 +4,15 @@ import { applyDesign, previewDesign, type DesignDraft } from './design'
 import { previewGrowth } from './growth'
 import { factorFromPreset } from './presets'
 import { createStudy, type Run, type Study } from './schema'
+import { fromDisplay } from './units'
+
+// The demo is written in the units the presses show, so it reads in round numbers; storage is metric.
+const psi = (v: number) => fromDisplay(v, 'pressure', 'imperial')
+const degF = (v: number) => fromDisplay(v, 'temperature', 'imperial')
+const tons = (v: number) => fromDisplay(v, 'force', 'imperial')
 
 /**
- * A worked example: a two-cavity housing on a 180 t press. After the six molding studies, melt
+ * A worked example: a two-cavity housing on a 200 ton press. After the six molding studies, melt
  * temperature, hold pressure, hold time and mold temperature were screened with a half fraction,
  * folded over, then grown into a face-centered central composite design in three blocks.
  * The results come from a known model plus noise, so the demo doubles as an end-to-end test.
@@ -25,14 +31,14 @@ const DEMO_GUIDE: Study['guide'] = {
     ratio: 1,
     notes: 'Fill to about 95% with hold off; plastic pressure from the press screen.',
     rows: [
-      [10, 3.9, 520],
-      [20, 2.0, 690],
-      [35, 1.18, 840],
-      [50, 0.84, 1010],
-      [70, 0.61, 1240],
-      [90, 0.48, 1500],
-      [110, 0.4, 1760],
-    ].map(([speed, fillTime, pressure]) => ({ speed, fillTime, pressure })),
+      [10, 3.9, 7500],
+      [20, 2.0, 10000],
+      [35, 1.18, 12200],
+      [50, 0.84, 14600],
+      [70, 0.61, 18000],
+      [90, 0.48, 21800],
+      [110, 0.4, 25500],
+    ].map(([speed, fillTime, pressure]) => ({ speed, fillTime, pressure: psi(pressure) })),
   },
   balance: {
     rows: [
@@ -46,10 +52,10 @@ const DEMO_GUIDE: Study['guide'] = {
   pressureDrop: {
     ratio: 1,
     rows: [
-      { segment: 'Nozzle (air shot)', pressure: 180 },
-      { segment: 'End of runner', pressure: 520 },
-      { segment: 'Past the gate', pressure: 860 },
-      { segment: 'Part at transfer', pressure: 1240 },
+      { segment: 'Nozzle (air shot)', pressure: psi(2600) },
+      { segment: 'End of runner', pressure: psi(7500) },
+      { segment: 'Past the gate', pressure: psi(12500) },
+      { segment: 'Part at transfer', pressure: psi(18000) },
     ],
   },
   gateSeal: {
@@ -65,19 +71,19 @@ const DEMO_GUIDE: Study['guide'] = {
   window: {
     temperature: 'melt',
     rows: [
-      [220, 400, 'short'],
-      [220, 550, 'short'],
-      [220, 700, 'sink'],
-      [230, 450, 'good'],
-      [230, 650, 'good'],
-      [245, 400, 'sink'],
-      [245, 550, 'good'],
-      [245, 700, 'flash'],
-      [260, 450, 'good'],
-      [260, 650, 'good'],
-      [270, 550, 'flash'],
-      [270, 400, 'sink'],
-    ].map(([temp, hold, outcome]) => ({ temp: temp as number, hold: hold as number, outcome: outcome as 'good' | 'short' | 'flash' | 'sink' })),
+      [430, 6000, 'short'],
+      [430, 8000, 'short'],
+      [430, 10000, 'sink'],
+      [450, 6500, 'good'],
+      [450, 9500, 'good'],
+      [475, 6000, 'sink'],
+      [475, 8000, 'good'],
+      [475, 10000, 'flash'],
+      [500, 6500, 'good'],
+      [500, 9500, 'good'],
+      [520, 8000, 'flash'],
+      [520, 6000, 'sink'],
+    ].map(([temp, hold, outcome]) => ({ temp: degF(temp as number), hold: psi(hold as number), outcome: outcome as 'good' | 'short' | 'flash' | 'sink' })),
   },
 }
 
@@ -91,16 +97,16 @@ function normal(random: () => number): number {
 export function demoStudy(now = new Date()): Study {
   const random = seededRandom(20261018)
   const factors = [
-    { ...factorFromPreset('melt_temp'), low: 230, high: 260 },
-    { ...factorFromPreset('hold_pressure'), low: 450, high: 650 },
+    { ...factorFromPreset('melt_temp'), low: degF(450), high: degF(500) },
+    { ...factorFromPreset('hold_pressure'), low: psi(6500), high: psi(9500) },
     { ...factorFromPreset('hold_time'), low: 3, high: 7 },
-    { ...factorFromPreset('mold_temp'), low: 50, high: 80, hardToChange: false },
+    { ...factorFromPreset('mold_temp'), low: degF(120), high: degF(175), hardToChange: false },
   ]
   let s: Study = {
     ...createStudy('Housing boss height (demo)', now),
     goal: 'Hold the 52.45 mm boss height on both cavities without flash, with a fully packed part.',
     cavities: 2,
-    machine: { name: 'Press 7 (180 t)', maxInjectionPressure: 1800, maxInjectionSpeed: 200, clampForce: 1800 },
+    machine: { name: 'Press 7 (200 ton)', maxInjectionPressure: psi(26000), maxInjectionSpeed: 200, clampForce: tons(200) },
     doe: true,
     factors,
     responses: [
