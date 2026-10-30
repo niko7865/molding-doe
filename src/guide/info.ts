@@ -6,7 +6,7 @@ export const GUIDE_STUDIES: { key: GuideKey; title: string; why: string; how: st
     key: 'viscosity',
     title: 'Viscosity curve',
     why: 'Finds the injection speeds where small speed changes no longer change how the melt flows, so fill is robust.',
-    how: 'Fill to about 95% with hold off. Step injection speed from slow to fast; at each speed record fill time and peak injection pressure.',
+    how: 'Fill to about 95% with hold off. Step injection speed from slow to fast; at each speed record fill time and peak injection pressure. Shot size may need to be adjusted to keep about 95% fill at each speed.',
   },
   {
     key: 'balance',
