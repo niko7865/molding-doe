@@ -13,6 +13,7 @@ import { EffectCharts, FactorPlots, ModelSummary, ResidualPlots } from './Analyz
 import { fmt } from './chartUtils'
 import { formatValue } from './format'
 import { GuideResult } from './GuidePanel'
+import { SettingsReport } from './ProcessSettings'
 import { guideSummary } from './guideText'
 import { MaterialChecks } from './MaterialCard'
 import { materialRows } from './materialText'
@@ -389,6 +390,7 @@ function GuideReport({ study, doe }: { study: Study; doe: boolean }) {
           </tbody>
         </table>
       </div>
+      <SettingsReport study={study} />
       {notDone.length > 0 && (
         <p className="banner info">
           {notDone.length} of 6 molding studies {notDone.length === 1 ? 'was' : 'were'} skipped or not done: {notDone.map((g) => g.title.toLowerCase()).join(', ')}.{' '}

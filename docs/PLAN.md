@@ -31,6 +31,7 @@ Repo: `niko7865/molding-doe` (React and TypeScript, hosted on GitHub Pages, inst
 - **Units:** pressures always show in psi, clamp force in US tons and temperatures in °F, because that is how the plant's presses are set up. A metric/imperial switch changes part weights and dimensions, speeds and volumes (g, mm, mm/s, cm³ or oz, in, in/s, in³). Values are stored in metric (bar, kN, °C, …) and converted for display.
 - **Machine profiles:** limits for each press (maximum injection pressure, shot size, speed, clamp tonnage). The design builder warns when any run exceeds them.
 - **Material data:** datasheet processing values kept with the study (melt and mold temperature ranges, drying temperature and time, max moisture, residence time, melt flow, shrinkage, regrind). DOE temperature factors and the process window study are checked against the melt and mold ranges, and the values print on the report.
+- **Process settings:** each molding study records the temperatures (measured melt, nozzle, barrel front and rear, both mold halves) and pressures (injection limit, hold, back pressure, as the press shows them) it was run at, plus custom settings. Settings a study varies are not entered, they can be copied from the previous study, melt and mold are checked against the datasheet and against the viscosity curve's (more than 20 °F apart gets a note), and the report and Excel export show them side by side.
 
 ## Scientific molding studies (primary workflow) *(Q4, Q11, Q21)*
 

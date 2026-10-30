@@ -27,6 +27,7 @@ import { formatValue } from './format'
 import { MaterialChecks } from './MaterialCard'
 import { rangeText } from './materialText'
 import { NumberField } from './NumberField'
+import { ProcessSettings, type SettingsPatch } from './ProcessSettings'
 
 const STATUS_LABEL: Record<GuideStatus, string> = { done: 'Done', skipped: 'Skipped', open: 'Not done' }
 
@@ -764,7 +765,7 @@ export function GuidePanel({ ws, study }: { ws: Workspace; study: Study }) {
   const View = VIEWS[active]
   const current = study.guide?.[active]
   const status = statusOf(study, active)
-  const setMeta = (p: { skipped?: boolean; notes?: string }) => patchGuide(ws, active, DEFAULTS[active](study) as never, (x) => ({ ...x, ...p }))
+  const setMeta = (p: { skipped?: boolean; notes?: string } & SettingsPatch) => patchGuide(ws, active, DEFAULTS[active](study) as never, (x) => ({ ...x, ...p }))
   return (
     <div className="guide">
       <nav className="card guide-nav" aria-label="Molding studies">
@@ -792,7 +793,14 @@ export function GuidePanel({ ws, study }: { ws: Workspace; study: Study }) {
         <p className="muted small">
           <strong>How:</strong> {info.how}
         </p>
-        {current?.skipped ? <p className="muted">Skipped. The report will flag it.</p> : <View study={study} ws={ws} />}
+        {current?.skipped ? (
+          <p className="muted">Skipped. The report will flag it.</p>
+        ) : (
+          <>
+            <View study={study} ws={ws} />
+            <ProcessSettings key={active} study={study} k={active} onChange={setMeta} />
+          </>
+        )}
         <label className="field">
           <span>Notes</span>
           <textarea rows={2} value={current?.notes ?? ''} onChange={(e) => setMeta({ notes: e.target.value })} placeholder="Material lot, press, anything that affects the result" />

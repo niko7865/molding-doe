@@ -257,3 +257,10 @@ td.wrap { white-space: normal; min-width: 160px; }
   th, td { border-bottom: 1px solid #999; }
   tr.done td { color: #000; }
 }
+
+/* Process settings on each molding study */
+.settings-box { margin: 12px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.settings-box[open] { padding-bottom: 12px; }
+.settings-box .varied { margin: 6px 0 0; font-style: italic; }
+.custom-setting { align-items: end; flex-wrap: wrap; }
+.custom-setting .field { flex: 1 1 140px; }
