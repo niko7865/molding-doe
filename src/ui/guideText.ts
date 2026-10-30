@@ -12,7 +12,8 @@ export function guideSummary(study: Study, key: GuideKey): string {
   switch (key) {
     case 'viscosity': {
       const r = viscosityCurve(g!.viscosity!)
-      return r.flatFrom !== null ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)} (steps under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}%).` : 'Viscosity had not leveled off at the speeds tested.'
+      const how = r.basis === 'fit' ? `, fitted curve, R² ${r.fit!.r2.toFixed(3)}` : ''
+      return r.flatFrom !== null ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)} (steps under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}%${how}).` : 'Viscosity had not leveled off at the speeds tested.'
     }
     case 'balance': {
       const r = cavityBalance(g!.balance!, study.cavities)
@@ -26,11 +27,15 @@ export function guideSummary(study: Study, key: GuideKey): string {
     }
     case 'gateSeal': {
       const r = gateSeal(g!.gateSeal!)
-      return r.sealTime !== null ? `Gate seals at about ${fmt(r.sealTime)} s; suggested hold time ${fmt(r.suggested!)} s.` : 'Gate had not sealed at the hold times tested.'
+      const how = r.basis === 'fit' ? ` (fitted freeze-off curve, R² ${r.fit!.r2.toFixed(3)})` : ''
+      if (r.sealTime !== null) return `Gate seals at about ${fmt(r.sealTime)} s${how}; suggested hold time ${fmt(r.suggested!)} s.`
+      return r.predicted !== null ? `Gate had not sealed at the hold times tested; the fitted curve predicts about ${fmt(r.predicted)} s.` : 'Gate had not sealed at the hold times tested.'
     }
     case 'cooling': {
       const r = coolingTime(g!.cooling!)
-      return r.shortest !== null ? `Shortest acceptable cooling time about ${fmt(r.shortest)} s.` : 'No acceptable cooling time found in the range tested.'
+      const how = r.source === 'fit' ? ` (fitted curve, R² ${r.fit!.r2.toFixed(3)})` : ''
+      if (r.shortest !== null) return `Shortest acceptable cooling time about ${fmt(r.shortest)} s${how}.`
+      return r.predicted !== null ? `No acceptable cooling time in the range tested; the fitted curve predicts about ${fmt(r.predicted)} s.` : 'No acceptable cooling time found in the range tested.'
     }
     case 'window': {
       const r = processWindow(g!.window!)

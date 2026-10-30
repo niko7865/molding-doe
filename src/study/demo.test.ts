@@ -33,7 +33,7 @@ describe('demo study', () => {
   it('has every pre-DOE study done, agreeing with the DOE ranges', () => {
     expect(GUIDE_STUDIES.map((g) => statusOf(s, g.key))).toEqual(new Array(6).fill('done'))
     expect(viscosityCurve(s.guide!.viscosity!).flatFrom).not.toBeNull()
-    expect(gateSeal(s.guide!.gateSeal!).sealTime).toBe(5)
+    expect(gateSeal(s.guide!.gateSeal!).sealTime).toBe(5.5)
     const w = processWindow(s.guide!.window!)
     expect(w.temp).toEqual([s.factors[0].low, s.factors[0].high])
     expect(w.hold).toEqual([s.factors[1].low, s.factors[1].high])
