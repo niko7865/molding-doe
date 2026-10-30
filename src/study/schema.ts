@@ -122,8 +122,9 @@ const guideBase = {
  * readings are multiplied by `ratio`, the intensification ratio (1 on presses that show plastic pressure).
  */
 export const guideSchema = z.object({
+  /** `threshold`: step-to-step viscosity change, in percent, below which the curve counts as level (default 10). */
   viscosity: z
-    .object({ ...guideBase, ratio: z.number().positive(), rows: z.array(z.object({ speed: num, fillTime: num, pressure: num })) })
+    .object({ ...guideBase, ratio: z.number().positive(), threshold: z.number().positive().optional(), rows: z.array(z.object({ speed: num, fillTime: num, pressure: num })) })
     .optional(),
   /** Fill-only part weights: one row per shot, one value per cavity. */
   /** `allowable`: allowable imbalance in percent (default 5). */

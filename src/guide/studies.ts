@@ -28,9 +28,11 @@ export interface ViscosityResult {
   flatFrom: number | null
 }
 
-export const FLAT_THRESHOLD = 0.1
+/** Default step-to-step viscosity change, in percent, below which the curve counts as level. */
+export const DEFAULT_FLAT_THRESHOLD = 10
 
 export function viscosityCurve(v: NonNullable<Guide['viscosity']>): ViscosityResult {
+  const threshold = (v.threshold ?? DEFAULT_FLAT_THRESHOLD) / 100
   const raw = v.rows
     .filter((r) => finite(r.speed) && finite(r.fillTime) && finite(r.pressure) && r.fillTime! > 0)
     .map((r) => ({ speed: r.speed!, fillTime: r.fillTime!, pressure: r.pressure! * v.ratio }))
@@ -43,7 +45,7 @@ export function viscosityCurve(v: NonNullable<Guide['viscosity']>): ViscosityRes
   let flatFrom: number | null = null
   if (points.length >= 3) {
     for (let i = points.length - 2; i >= 0; i--) {
-      if (Math.abs(points[i + 1].drop!) < FLAT_THRESHOLD) flatFrom = points[i].speed
+      if (Math.abs(points[i + 1].drop!) < threshold) flatFrom = points[i].speed
       else break
     }
   }
