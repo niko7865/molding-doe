@@ -1,4 +1,6 @@
+import { GUIDE_STUDIES } from '../guide/info'
 import type { Response, Run, Study } from '../study/schema'
+import { settingsTable } from '../study/settings'
 import { toDisplay, unitLabel } from '../study/units'
 import type { Cell, Sheet } from './xlsx'
 
@@ -75,10 +77,22 @@ export function factorTable(study: Study): Cell[][] {
   ]
 }
 
+/** Process settings of the molding studies, one column per study, in display units. */
+export function settingsSheet(study: Study): Cell[][] {
+  const t = settingsTable(study)
+  if (!t.rows.length) return []
+  return [
+    ['Setting', 'Unit', ...t.studies.map((k) => GUIDE_STUDIES.find((g) => g.key === k)!.title)],
+    ...t.rows.map((r) => [r.label, unitLabel(r.quantity, study.units), ...r.values.map((v) => (typeof v === 'number' ? clean(toDisplay(v, r.quantity, study.units)) : (v ?? null)))]),
+  ]
+}
+
 export function workbook(study: Study): Sheet[] {
+  const settings = settingsSheet(study)
   return [
     { name: 'Runs', rows: runTable(study) },
     { name: 'Factors', rows: factorTable(study) },
+    ...(settings.length ? [{ name: 'Process settings', rows: settings }] : []),
   ]
 }
 

@@ -141,10 +141,25 @@ export const analysisSchema = z.object({
 })
 
 const num = z.number().nullable()
+
+/** A process setting the user added beyond the standard list (see study/settings.ts). */
+const customSettingSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  quantity: z.enum(['temperature', 'pressure']),
+  value: z.number().optional(),
+})
+
 const guideBase = {
   /** Deliberately not done; flagged on the report. */
   skipped: z.boolean().optional(),
   notes: z.string().optional(),
+  /**
+   * Temperatures and pressures the press ran at during the study, keyed by SETTINGS key. Metric (°C, bar);
+   * pressures as the press shows them, with no intensification ratio applied. Missing in older files.
+   */
+  settings: z.record(z.string(), z.number()).optional(),
+  customSettings: z.array(customSettingSchema).optional(),
 }
 
 /** `fit`: base the result on a fitted curve rather than the raw points (default true). */
@@ -251,6 +266,7 @@ export type DesignSpec = z.infer<typeof designSpecSchema>
 export type SeriesSettings = z.infer<typeof seriesSettingsSchema>
 export type Analysis = z.infer<typeof analysisSchema>
 export type Guide = z.infer<typeof guideSchema>
+export type CustomSetting = z.infer<typeof customSettingSchema>
 export type Study = z.infer<typeof studySchema>
 
 export function newId(): string {

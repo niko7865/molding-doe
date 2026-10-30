@@ -25,10 +25,21 @@ export const DEMO_MODEL = {
   flash: ([a, b]: number[]) => 1.9 + 0.55 * a + 0.9 * b + 0.3 * a * b,
 }
 
+/** Process settings in °F and psi, as written on the setup sheet; hold is off for the fill-only studies. */
+function setup(p: { melt?: number; hold?: number }) {
+  const temps = { melt: p.melt ?? 460, nozzle: 450, barrelFront: 450, barrelRear: 420, moldMoving: 140, moldFixed: 140 }
+  const pressures = { injectionLimit: 26000, back: 100, ...(p.hold !== undefined ? { hold: p.hold } : {}) }
+  return {
+    ...Object.fromEntries(Object.entries(temps).map(([k, v]) => [k, degF(v)])),
+    ...Object.fromEntries(Object.entries(pressures).map(([k, v]) => [k, psi(v)])),
+  }
+}
+
 /** The six molding studies as a process engineer would have recorded them on this mold. */
 const DEMO_GUIDE: Study['guide'] = {
   viscosity: {
     ratio: 1,
+    settings: setup({}),
     notes: 'Fill to about 95% with hold off; plastic pressure from the press screen.',
     rows: [
       [10, 3.9, 7500],
@@ -41,6 +52,7 @@ const DEMO_GUIDE: Study['guide'] = {
     ].map(([speed, fillTime, pressure]) => ({ speed, fillTime, pressure: psi(pressure) })),
   },
   balance: {
+    settings: setup({}),
     rows: [
       [17.62, 17.21],
       [17.58, 17.25],
@@ -51,6 +63,7 @@ const DEMO_GUIDE: Study['guide'] = {
   },
   pressureDrop: {
     ratio: 1,
+    settings: setup({ hold: 8000 }),
     rows: [
       { segment: 'Nozzle (air shot)', pressure: psi(2600) },
       { segment: 'End of runner', pressure: psi(7500) },
@@ -59,10 +72,13 @@ const DEMO_GUIDE: Study['guide'] = {
     ],
   },
   gateSeal: {
+    settings: setup({ hold: 8000 }),
     rows: [1, 2, 3, 4, 5, 6, 7, 8].map((time, i) => ({ time, weight: [36.9, 37.45, 37.82, 38.05, 38.17, 38.19, 38.2, 38.19][i] })),
   },
   cooling: {
     label: 'Boss height',
+    // Melt crept up 5 °F after a barrel zone was retuned.
+    settings: setup({ melt: 465, hold: 8000 }),
     quantity: 'length',
     specLow: 52.4,
     specHigh: 52.5,
@@ -70,6 +86,8 @@ const DEMO_GUIDE: Study['guide'] = {
   },
   window: {
     temperature: 'melt',
+    settings: Object.fromEntries(Object.entries(setup({})).filter(([k]) => k !== 'melt')),
+    customSettings: [{ id: 'demo-hot-runner', name: 'Hot runner tip', quantity: 'temperature', value: degF(470) }],
     rows: [
       [430, 6000, 'short'],
       [430, 8000, 'short'],
