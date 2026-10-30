@@ -16,6 +16,7 @@ import {
   type GuideStatus,
 } from '../guide/studies'
 import { sampleCurve, type CurveFit } from '../stats/curves'
+import { fullRange, TEMPERATURE_PRESETS, type TemperatureKind } from '../study/material'
 import { FACTOR_PRESETS, factorFromPreset } from '../study/presets'
 import { doeEnabled, type Guide, type Study } from '../study/schema'
 import { toDisplay, unitLabel, type Quantity } from '../study/units'
@@ -23,6 +24,8 @@ import type { Workspace } from '../study/useWorkspace'
 import { fmt } from './chartUtils'
 import { ParetoChart, ScatterChart } from './charts'
 import { formatValue } from './format'
+import { MaterialChecks } from './MaterialCard'
+import { rangeText } from './materialText'
 import { NumberField } from './NumberField'
 
 const STATUS_LABEL: Record<GuideStatus, string> = { done: 'Done', skipped: 'Skipped', open: 'Not done' }
@@ -571,9 +574,15 @@ const TEMPERATURES = {
   mold: { label: 'Mold temperature', preset: 'mold_temp' },
 } as const
 
+/** The DOE factor's range, else the datasheet range for melt and mold temperature, else the preset's. */
 function presetRange(study: Study, key: string): [number, number] {
-  const f = study.factors.find((x) => x.preset === key) ?? FACTOR_PRESETS.find((p) => p.key === key)!
-  return [f.low, f.high]
+  const f = study.factors.find((x) => x.preset === key)
+  if (f) return [f.low, f.high]
+  const kind = (Object.keys(TEMPERATURE_PRESETS) as TemperatureKind[]).find((k) => TEMPERATURE_PRESETS[k] === key)
+  const datasheet = kind && fullRange(study.material?.[kind])
+  if (datasheet) return datasheet
+  const p = FACTOR_PRESETS.find((x) => x.key === key)!
+  return [p.low, p.high]
 }
 
 function WindowResultView({ study }: { study: Study }) {
@@ -702,7 +711,13 @@ function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
           )}
         </div>
       </div>
+      {rangeText(study.material?.[g.temperature], undefined, study) && (
+        <p className="muted small">
+          Datasheet {g.temperature} temperature: {rangeText(study.material?.[g.temperature], undefined, study)}.
+        </p>
+      )}
       <WindowResultView study={{ ...study, guide: { ...study.guide, window: g } }} />
+      <MaterialChecks study={{ ...study, factors: [], guide: { window: g } }} />
       {r.temp && r.hold && doeEnabled(study) && (
         <div className="row">
           <button className="btn" disabled={study.runs.length > 0} onClick={apply}>

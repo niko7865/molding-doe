@@ -14,6 +14,8 @@ import { fmt } from './chartUtils'
 import { formatValue } from './format'
 import { GuideResult } from './GuidePanel'
 import { guideSummary } from './guideText'
+import { MaterialChecks } from './MaterialCard'
+import { materialRows } from './materialText'
 
 const LETTERS = 'ABCDEFGHJKLMNOP'
 const KIND_LABEL = { continuous: 'Measurement', rating: 'Rating 1–5', passfail: 'Pass/fail count' } as const
@@ -222,6 +224,8 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
           )}
         </header>
 
+        {study.material && <MaterialReport study={study} />}
+
         {include.guide && (
           <section className="report-section">
             <h2>Molding studies</h2>
@@ -328,6 +332,37 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
         )}
       </article>
     </>
+  )
+}
+
+function MaterialReport({ study }: { study: Study }) {
+  const m = study.material!
+  const rows = materialRows(m, study)
+  return (
+    <section className="report-section">
+      <h2>Material</h2>
+      <p>
+        {m.name || 'Unnamed resin'}
+        {m.supplier ? ` · ${m.supplier}` : ''}
+      </p>
+      {rows.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <caption>Datasheet values</caption>
+            <tbody>
+              {rows.map(([label, text]) => (
+                <tr key={label}>
+                  <td>{label}</td>
+                  <td className="num">{text}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {m.notes && <p className="wrap">{m.notes}</p>}
+      <MaterialChecks study={study} />
+    </section>
   )
 }
 

@@ -5,6 +5,7 @@ import type { Conflict } from '../study/merge'
 import { doeEnabled, type MachineProfile, type Study } from '../study/schema'
 import { toDisplay, unitLabel, type Quantity } from '../study/units'
 import type { Workspace } from '../study/useWorkspace'
+import { MaterialCard } from './MaterialCard'
 import { NumberField } from './NumberField'
 
 const ACCEPT = `${FILE_EXTENSION},.json,application/json`
@@ -239,6 +240,8 @@ function StudyEditor({ ws, study }: { ws: Workspace; study: Study }) {
           <p className="muted">No press set. Add one so designs are checked against its limits.</p>
         )}
       </section>
+
+      <MaterialCard ws={ws} study={study} />
 
       {ws.mergeReport && (
         <section className="card">
