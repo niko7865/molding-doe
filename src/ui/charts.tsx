@@ -188,6 +188,7 @@ export function ScatterChart({
   xTicks,
   tooltip,
   box,
+  curve,
 }: {
   title: string
   points: ScatterPoint[]
@@ -209,13 +210,15 @@ export function ScatterChart({
   tooltip?: (p: ScatterPoint) => string
   /** Outlined region, e.g. a suggested range for two factors. */
   box?: { x: [number, number]; y: [number, number]; label: string }
+  /** Fitted curve, drawn as a smooth line under the points. */
+  curve?: { x: number; y: number }[]
 }) {
   const [hover, setHover] = useState<Hover | null>(null)
   const height = 300
   if (!points.length) return null
   const bandValues = (band ?? []).flatMap((v) => (v === undefined ? [] : [v]))
   const [xl, xh] = extent([...points.map((p) => p.x), ...(vline ? [vline.x] : [])])
-  const [yl, yh] = extent([...points.map((p) => p.y), ...(zeroLine ? [0] : []), ...bandValues])
+  const [yl, yh] = extent([...points.map((p) => p.y), ...(curve ?? []).map((p) => p.y), ...(zeroLine ? [0] : []), ...bandValues])
   const x = scale(xl, xh, PAD.left, W - PAD.right)
   const y = scale(yl, yh, height - PAD.bottom, PAD.top)
   const xt = xTicks ?? ticks(xl, xh)
@@ -252,6 +255,7 @@ export function ScatterChart({
         </g>
       )}
       {connect && <polyline points={ordered.map((p) => `${x(p.x)},${y(p.y)}`).join(' ')} className="line s1" />}
+      {curve && curve.length > 1 && <polyline points={curve.map((p) => `${x(p.x)},${clampY(y(p.y))}`).join(' ')} className="line s1" />}
       {zeroLine && <line x1={PAD.left} x2={W - PAD.right} y1={y(0)} y2={y(0)} className="ref" />}
       {line && <line x1={x(line[0].x)} x2={x(line[1].x)} y1={clampY(y(line[0].y))} y2={clampY(y(line[1].y))} className="fit-line" />}
       {points.map((p, i) => (

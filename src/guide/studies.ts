@@ -1,3 +1,4 @@
+import { fitGateFreeze, fitPlateau, fitPowerDecay, freezeWithin, type FreezeFit, type PlateauFit, type PowerDecayFit } from '../stats/curves'
 import type { Guide } from '../study/schema'
 
 /**
@@ -6,6 +7,15 @@ import type { Guide } from '../study/schema'
  */
 
 const finite = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
+
+/** Below this R² a fit is shown but the result falls back to the raw points. */
+export const MIN_FIT_R2 = 0.9
+
+/** Fitted times are rounded up to the 0.1 s a press is set in, which errs on the safe side. */
+const upToTenth = (t: number) => Math.ceil(t * 10 - 1e-9) / 10
+
+/** Where a study's result came from: the fitted curve, or the measured points step by step. */
+export type ResultBasis = 'fit' | 'data'
 
 // 1. Viscosity curve -------------------------------------------------------------------------
 
@@ -20,12 +30,28 @@ export interface ViscosityPoint {
   viscosity: number
   /** Drop from the previous (slower) point, as a fraction of its viscosity. */
   drop: number | null
+  /** Viscosity on the fitted curve at this speed. */
+  fitted?: number
 }
 
 export interface ViscosityResult {
   points: ViscosityPoint[]
   /** Slowest speed from which every further step changes viscosity by less than the threshold. */
   flatFrom: number | null
+  /** Viscosity = floor + k · speed^(−m), when fitting is on and at least four speeds are in. */
+  fit: PowerDecayFit | null
+  basis: ResultBasis
+}
+
+/** Slowest of `speeds` from which every further step changes `values` by less than `threshold`. */
+function levelsOffFrom(speeds: number[], values: number[], threshold: number): number | null {
+  if (speeds.length < 3) return null
+  let from: number | null = null
+  for (let i = speeds.length - 2; i >= 0; i--) {
+    if (Math.abs((values[i] - values[i + 1]) / values[i]) < threshold) from = speeds[i]
+    else break
+  }
+  return from
 }
 
 /** Default step-to-step viscosity change, in percent, below which the curve counts as level. */
@@ -42,14 +68,14 @@ export function viscosityCurve(v: NonNullable<Guide['viscosity']>): ViscosityRes
     const prev = i > 0 ? raw[i - 1].pressure * raw[i - 1].fillTime : null
     return { ...r, shearRate: 1 / r.fillTime, viscosity, drop: prev === null ? null : (prev - viscosity) / prev }
   })
-  let flatFrom: number | null = null
-  if (points.length >= 3) {
-    for (let i = points.length - 2; i >= 0; i--) {
-      if (Math.abs(points[i + 1].drop!) < threshold) flatFrom = points[i].speed
-      else break
-    }
+  const speeds = points.map((p) => p.speed)
+  const fit = v.fit === false || new Set(speeds).size < 4 ? null : fitPowerDecay(speeds, points.map((p) => p.viscosity))
+  // Shear thinning means viscosity falls with speed; anything else is not a curve to level off.
+  if (fit && fit.r2 >= MIN_FIT_R2 && fit.k > 0) {
+    const fitted = speeds.map(fit.predict)
+    return { points: points.map((p, i) => ({ ...p, fitted: fitted[i] })), flatFrom: levelsOffFrom(speeds, fitted, threshold), fit, basis: 'fit' }
   }
-  return { points, flatFrom }
+  return { points, flatFrom: levelsOffFrom(speeds, points.map((p) => p.viscosity), threshold), fit, basis: 'data' }
 }
 
 // 2. Cavity balance --------------------------------------------------------------------------
@@ -117,6 +143,11 @@ export interface GateSealResult {
   suggested: number | null
   /** The weight was still rising at the longest hold time tested. */
   stillRising: boolean
+  /** Gate freeze-off curve, when fitting is on and at least four hold times are in. */
+  fit: FreezeFit | null
+  basis: ResultBasis
+  /** Seal time the fit predicts beyond the longest hold time tested. */
+  predicted: number | null
 }
 
 /** Default weight change, in percent of the maximum, within which the gate counts as sealed. */
@@ -127,16 +158,27 @@ export function gateSeal(g: NonNullable<Guide['gateSeal']>): GateSealResult {
     .filter((r) => finite(r.time) && finite(r.weight))
     .map((r) => ({ time: r.time!, weight: r.weight! }))
     .sort((a, b) => a.time - b.time)
-  if (points.length < 3) return { points, sealTime: null, suggested: null, stillRising: false }
+  const none = { sealTime: null, suggested: null, stillRising: false, fit: null, basis: 'data' as const, predicted: null }
+  if (points.length < 3) return { points, ...none }
+  const fraction = (g.tolerance ?? DEFAULT_SEAL_TOLERANCE) / 100
+  const withMargin = (t: number) => upToTenth(t + Math.max(0.5, t * 0.1))
+  const fit = g.fit === false || new Set(points.map((p) => p.time)).size < 4 ? null : fitGateFreeze(points.map((p) => p.time), points.map((p) => p.weight))
+  if (fit && fit.r2 >= MIN_FIT_R2 && fit.c > 0) {
+    // Sealed once the fitted weight is within the tolerance of the sealed weight.
+    const t = upToTenth(Math.max(points[0].time, freezeWithin(fit, fit.sealed * fraction)))
+    const last = points.at(-1)!.time
+    if (t > last) return { points, ...none, stillRising: true, fit, basis: 'fit', predicted: t }
+    return { points, sealTime: t, suggested: withMargin(t), stillRising: false, fit, basis: 'fit', predicted: null }
+  }
   const max = Math.max(...points.map((p) => p.weight))
-  const tol = (max * (g.tolerance ?? DEFAULT_SEAL_TOLERANCE)) / 100
+  const tol = max * fraction
   let idx = points.length - 1
   while (idx > 0 && points.slice(idx - 1).every((p) => p.weight >= max - tol)) idx--
   const n = points.length
   const stillRising = idx === n - 1 && points[n - 1].weight - points[n - 2].weight > tol
-  if (stillRising) return { points, sealTime: null, suggested: null, stillRising }
+  if (stillRising) return { points, ...none, stillRising, fit }
   const sealTime = points[idx].time
-  return { points, sealTime, suggested: sealTime + Math.max(0.5, sealTime * 0.1), stillRising }
+  return { points, ...none, sealTime, suggested: withMargin(sealTime), fit }
 }
 
 // 5. Cooling time ----------------------------------------------------------------------------
@@ -146,17 +188,45 @@ export interface CoolingResult {
   /** Shortest cooling time from which every longer time is in spec (or stable without a spec). */
   shortest: number | null
   basis: 'spec' | 'stable' | null
+  /** Value = plateau − gap · e^(−(t − t0)/τ), when fitting is on and at least four times are in. */
+  fit: PlateauFit | null
+  /** Whether `shortest` comes from the fitted curve or the measured points. */
+  source: ResultBasis
+  /** Shortest time the fit predicts beyond the longest time tested. */
+  predicted: number | null
 }
 
+/** Settled once within this fraction of the change seen over the times tested. */
 export const STABLE_FRACTION = 0.05
+
+/** First time from which the fitted curve stays in spec (or settled); null if it never does. */
+function fittedShortest(f: PlateauFit, c: NonNullable<Guide['cooling']>, hasSpec: boolean): number | null {
+  // Time at which the remaining gap to the plateau shrinks to `room` (≥ 0).
+  const reach = (room: number) => (room <= 0 ? null : Math.abs(f.gap) <= room ? f.x0 : f.x0 + f.tau * Math.log(Math.abs(f.gap) / room))
+  if (!hasSpec) return reach(STABLE_FRACTION * Math.abs(f.gap))
+  if ((c.specLow !== undefined && f.plateau < c.specLow) || (c.specHigh !== undefined && f.plateau > c.specHigh)) return null
+  // Rising curves approach from below, so only the low limit can be broken; falling ones only the high.
+  if (f.gap > 0) return c.specLow === undefined ? f.x0 : reach(f.plateau - c.specLow)
+  return c.specHigh === undefined ? f.x0 : reach(c.specHigh - f.plateau)
+}
 
 export function coolingTime(c: NonNullable<Guide['cooling']>): CoolingResult {
   const points = c.rows
     .filter((r) => finite(r.time) && finite(r.value))
     .map((r) => ({ time: r.time!, value: r.value! }))
     .sort((a, b) => a.time - b.time)
-  if (points.length < 3) return { points, shortest: null, basis: null }
+  if (points.length < 3) return { points, shortest: null, basis: null, fit: null, source: 'data', predicted: null }
   const hasSpec = c.specLow !== undefined || c.specHigh !== undefined
+  const basis = hasSpec ? 'spec' : 'stable'
+  const fit = c.fit === false || new Set(points.map((p) => p.time)).size < 4 ? null : fitPlateau(points.map((p) => p.time), points.map((p) => p.value))
+  if (fit && fit.r2 >= MIN_FIT_R2 && fit.tau > 0 && fit.gap !== 0) {
+    const exact = fittedShortest(fit, c, hasSpec)
+    const t = exact === null ? null : upToTenth(exact)
+    const last = points.at(-1)!.time
+    if (t === null) return { points, shortest: null, basis, fit, source: 'fit', predicted: null }
+    if (t > last) return { points, shortest: null, basis, fit, source: 'fit', predicted: t }
+    return { points, shortest: t, basis, fit, source: 'fit', predicted: null }
+  }
   const ok = hasSpec
     ? (v: number) => (c.specLow === undefined || v >= c.specLow) && (c.specHigh === undefined || v <= c.specHigh)
     : (() => {
@@ -167,7 +237,7 @@ export function coolingTime(c: NonNullable<Guide['cooling']>): CoolingResult {
       })()
   let idx = points.length
   while (idx > 0 && ok(points[idx - 1].value)) idx--
-  return { points, shortest: idx < points.length ? points[idx].time : null, basis: hasSpec ? 'spec' : 'stable' }
+  return { points, shortest: idx < points.length ? points[idx].time : null, basis, fit, source: 'data', predicted: null }
 }
 
 // 6. Process window --------------------------------------------------------------------------

@@ -7,15 +7,38 @@ describe('viscosity curve', () => {
     const speeds = [10, 20, 40, 60, 80, 100]
     const fill = [4, 2, 1, 0.66, 0.5, 0.4]
     const hyd = [40, 52, 66, 90, 115, 141]
-    const r = viscosityCurve({ ratio: 10, rows: speeds.map((s, i) => ({ speed: s, fillTime: fill[i], pressure: hyd[i] })) })
+    const r = viscosityCurve({ ratio: 10, fit: false, rows: speeds.map((s, i) => ({ speed: s, fillTime: fill[i], pressure: hyd[i] })) })
     expect(r.points[0].viscosity).toBeCloseTo(40 * 10 * 4, 9)
     expect(r.points[0].pressure).toBe(400)
     expect(r.points[1].drop).toBeCloseTo(1 - 1040 / 1600, 9)
     // 660 → 594 is a 10% step; 594 → 575 → 564 are under 10%, so it levels off from 60 mm/s.
     expect(r.flatFrom).toBe(60)
+    expect(r.basis).toBe('data')
     const rows = speeds.map((s, i) => ({ speed: s, fillTime: fill[i], pressure: hyd[i] }))
-    expect(viscosityCurve({ ratio: 10, threshold: 15, rows }).flatFrom).toBe(40)
-    expect(viscosityCurve({ ratio: 10, threshold: 3, rows }).flatFrom).toBe(80)
+    expect(viscosityCurve({ ratio: 10, fit: false, threshold: 15, rows }).flatFrom).toBe(40)
+    expect(viscosityCurve({ ratio: 10, fit: false, threshold: 3, rows }).flatFrom).toBe(80)
+  })
+
+  it('fits a leveling power law and applies the threshold to the fitted curve', () => {
+    // Exact curve: 500 + 20000 · speed^−1.2.
+    const speeds = [10, 20, 40, 60, 80, 100]
+    const rows = speeds.map((s) => ({ speed: s, fillTime: 1, pressure: 500 + 20000 * s ** -1.2 }))
+    const r = viscosityCurve({ ratio: 1, rows })
+    expect(r.basis).toBe('fit')
+    expect(r.fit!.floor).toBeCloseTo(500, 3)
+    expect(r.fit!.m).toBeCloseTo(1.2, 4)
+    expect(r.fit!.r2).toBeCloseTo(1, 9)
+    // Fitted steps: 40→60 is 13.6%, 60→80 is 8.0%, 80→100 is 5.3%.
+    expect(r.flatFrom).toBe(60)
+    expect(viscosityCurve({ ratio: 1, threshold: 6, rows }).flatFrom).toBe(80)
+  })
+
+  it('smooths a noisy point that would stop the step rule', () => {
+    const speeds = [10, 20, 40, 60, 80, 100]
+    const noise = [0, 0, 0, 0, 25, -25]
+    const rows = speeds.map((s, i) => ({ speed: s, fillTime: 1, pressure: 500 + 20000 * s ** -1.2 + noise[i] }))
+    expect(viscosityCurve({ ratio: 1, fit: false, rows }).flatFrom).toBeNull()
+    expect(viscosityCurve({ ratio: 1, rows }).flatFrom).toBe(60)
   })
 
   it('ignores incomplete rows and sorts by speed', () => {
@@ -48,17 +71,40 @@ describe('pressure drop', () => {
 })
 
 describe('gate seal', () => {
+  const rows7 = [1, 2, 3, 4, 5, 6, 7].map((t, i) => ({ time: t, weight: [30.1, 30.6, 30.9, 31.0, 31.01, 31.005, 31.01][i] }))
   it('finds the hold time where weight stops rising and adds a margin', () => {
-    const r = gateSeal({ rows: [1, 2, 3, 4, 5, 6, 7].map((t, i) => ({ time: t, weight: [30.1, 30.6, 30.9, 31.0, 31.01, 31.005, 31.01][i] })) })
+    const r = gateSeal({ rows: rows7, fit: false })
     expect(r.sealTime).toBe(4)
     expect(r.suggested).toBeCloseTo(4.5, 9)
     expect(r.stillRising).toBe(false)
+    expect(r.basis).toBe('data')
   })
 
   it('uses a custom sealed weight-change threshold', () => {
     const rows = [1, 2, 3, 4, 5, 6].map((t, i) => ({ time: t, weight: [30, 30.5, 30.9, 30.96, 30.99, 31][i] }))
-    expect(gateSeal({ rows }).sealTime).toBe(5)
-    expect(gateSeal({ rows, tolerance: 0.2 }).sealTime).toBe(4)
+    expect(gateSeal({ rows, fit: false }).sealTime).toBe(5)
+    expect(gateSeal({ rows, fit: false, tolerance: 0.2 }).sealTime).toBe(4)
+    // The fitted curve moves the same way with the threshold.
+    expect(gateSeal({ rows, tolerance: 0.2 }).sealTime!).toBeLessThan(gateSeal({ rows }).sealTime!)
+  })
+
+  it('fits a freeze-off curve and reads the seal time from it', () => {
+    const r = gateSeal({ rows: rows7 })
+    expect(r.basis).toBe('fit')
+    expect(r.fit!.r2).toBeGreaterThan(0.99)
+    expect(r.fit!.sealed).toBeCloseTo(31.015, 2)
+    expect(r.sealTime!).toBeGreaterThan(3.5)
+    expect(r.sealTime!).toBeLessThan(4.5)
+    expect(r.suggested).toBeCloseTo(r.sealTime! + 0.5, 9)
+  })
+
+  it('reports a fitted seal time beyond the range tested as still rising', () => {
+    // Freezes off at 10 s, but only 1–5 s tested.
+    const w = (t: number) => { const g = 1 - Math.sqrt(Math.min(t, 10) / 10); return 31 - 3 * 10 * (g ** 3 / 3 - g ** 4 / 4) }
+    const r = gateSeal({ rows: [1, 2, 3, 4, 5].map((t) => ({ time: t, weight: w(t) })) })
+    expect(r.stillRising).toBe(true)
+    expect(r.sealTime).toBeNull()
+    expect(r.predicted!).toBeGreaterThan(5)
   })
 
   it('says so when the weight is still rising', () => {
@@ -71,12 +117,30 @@ describe('gate seal', () => {
 describe('cooling time', () => {
   const rows = [8, 10, 12, 14, 16, 18].map((t, i) => ({ time: t, value: [52.2, 52.32, 52.39, 52.42, 52.43, 52.43][i] }))
   it('uses the spec when given', () => {
-    expect(coolingTime({ label: 'Boss', quantity: 'length', specLow: 52.38, specHigh: 52.5, rows }).shortest).toBe(12)
+    expect(coolingTime({ label: 'Boss', quantity: 'length', fit: false, specLow: 52.38, specHigh: 52.5, rows }).shortest).toBe(12)
   })
   it('falls back to where the value stops changing', () => {
-    const r = coolingTime({ label: 'Boss', quantity: 'length', rows })
+    const r = coolingTime({ label: 'Boss', quantity: 'length', fit: false, rows })
     expect(r.basis).toBe('stable')
     expect(r.shortest).toBe(14)
+  })
+  it('fits an exponential approach and solves for the spec crossing', () => {
+    // Exact curve: 52.45 − 0.4 · e^(−(t − 8)/3).
+    const exact = [8, 10, 12, 14, 16, 18].map((t) => ({ time: t, value: 52.45 - 0.4 * Math.exp(-(t - 8) / 3) }))
+    const r = coolingTime({ label: 'Boss', quantity: 'length', specLow: 52.4, rows: exact })
+    expect(r.source).toBe('fit')
+    expect(r.fit!.plateau).toBeCloseTo(52.45, 6)
+    expect(r.fit!.tau).toBeCloseTo(3, 4)
+    expect(r.shortest).toBe(Math.ceil((8 + 3 * Math.log(8)) * 10) / 10)
+    // Without a spec: settled once within 5% of the change, 3·ln 20 after the first time.
+    expect(coolingTime({ label: 'Boss', quantity: 'length', rows: exact }).shortest).toBe(Math.ceil((8 + 3 * Math.log(20)) * 10) / 10)
+    // A plateau outside the spec never gets there.
+    expect(coolingTime({ label: 'Boss', quantity: 'length', specLow: 52.5, rows: exact }).shortest).toBeNull()
+  })
+  it('handles a falling measurement against an upper limit', () => {
+    const exact = [5, 10, 15, 20, 25].map((t) => ({ time: t, value: 1.2 + 2 * Math.exp(-(t - 5) / 6) }))
+    const r = coolingTime({ label: 'Warp', quantity: 'length', specHigh: 1.5, rows: exact })
+    expect(r.shortest).toBe(Math.ceil((5 + 6 * Math.log(2 / 0.3)) * 10) / 10)
   })
 })
 

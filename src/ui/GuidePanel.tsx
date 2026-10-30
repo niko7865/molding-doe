@@ -8,12 +8,14 @@ import {
   DEFAULT_FLAT_THRESHOLD,
   DEFAULT_SEAL_TOLERANCE,
   gateSeal,
+  MIN_FIT_R2,
   pressureDrop,
   processWindow,
   viscosityCurve,
   type GuideKey,
   type GuideStatus,
 } from '../guide/studies'
+import { sampleCurve, type CurveFit } from '../stats/curves'
 import { FACTOR_PRESETS, factorFromPreset } from '../study/presets'
 import { doeEnabled, type Guide, type Study } from '../study/schema'
 import { toDisplay, unitLabel, type Quantity } from '../study/units'
@@ -70,6 +72,37 @@ function RatioField<K extends 'viscosity' | 'pressureDrop'>({ study, ws, k }: { 
 }
 
 const pct = (v: number) => `${Number(v.toPrecision(6))}%`
+
+type FitKey = 'viscosity' | 'gateSeal' | 'cooling'
+
+/** Turns the curve fit on or off for a study (on by default). */
+function FitToggle<K extends FitKey>({ study, ws, k, hint }: { study: Study; ws: Workspace; k: K; hint: string }) {
+  const g = study.guide?.[k] ?? DEFAULTS[k](study)
+  return (
+    <div className="row">
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={g.fit !== false}
+          onChange={(e) => patchGuide(ws, k, DEFAULTS[k](study), (x) => ({ ...x, fit: e.target.checked ? undefined : false }))}
+        />
+        Fit a curve
+      </label>
+      <span className="muted small grow">{hint}</span>
+    </div>
+  )
+}
+
+/** One line on the fitted model and how well it fits. */
+function FitNote({ fit, model, used }: { fit: CurveFit | null; model: string; used: boolean }) {
+  if (!fit) return null
+  return (
+    <p className="muted small">
+      Fitted curve: {model}. R² = {fit.r2.toFixed(3)}.
+      {!used && (fit.r2 < MIN_FIT_R2 ? ` That is below ${MIN_FIT_R2}, so the result uses the measured points instead.` : ' The curve doesn’t have the expected shape, so the result uses the measured points instead.')}
+    </p>
+  )
+}
 
 /** A positive percentage setting, such as a study's pass/fail threshold. */
 function PercentField({ label, value, units, onChange, hint }: { label: string; value: number; units: Study['units']; onChange: (v: number) => void; hint: string }) {
@@ -145,6 +178,8 @@ function ViscosityResultView({ study }: { study: Study }) {
   const visc = (v: number) => toDisplay(v, 'pressure', study.units)
   const max = maxPressure(study)
   const limitedFrom = max ? r.points.find((p) => p.pressure >= 0.95 * max)?.speed : undefined
+  const speeds = r.points.map((p) => p.speed)
+  const fitted = r.basis === 'fit'
   return (
     <>
       <ScatterChart
@@ -152,12 +187,18 @@ function ViscosityResultView({ study }: { study: Study }) {
         points={r.points.map((p) => ({ x: toDisplay(p.speed, 'speed', study.units), y: visc(p.viscosity), highlight: true }))}
         xLabel={`Injection speed (${unitLabel('speed', study.units)})`}
         yLabel={`Relative viscosity (${viscosityUnit(study)})`}
-        connect
+        connect={!r.fit}
+        curve={r.fit ? sampleCurve(r.fit.predict, Math.min(...speeds), Math.max(...speeds)).map((p) => ({ x: toDisplay(p.x, 'speed', study.units), y: visc(p.y) })) : undefined}
         vline={r.flatFrom !== null ? { x: toDisplay(r.flatFrom, 'speed', study.units), label: 'Levels off' } : undefined}
+      />
+      <FitNote
+        fit={r.fit}
+        used={fitted}
+        model={r.fit ? `power law (exponent −${r.fit.m.toFixed(2)}) leveling toward ${fmt(visc(r.fit.floor))} ${viscosityUnit(study)}` : ''}
       />
       <Suggestion>
         {r.flatFrom !== null
-          ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)}: each faster step changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
+          ? `${fitted ? 'On the fitted curve, viscosity' : 'Viscosity'} levels off from ${formatValue(r.flatFrom, 'speed', study)}: each faster step changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
           : r.points.length >= 3
             ? 'The curve has not leveled off yet. Add faster speeds if the press allows; otherwise use the fastest stable speed, and include injection speed as a factor if you run a DOE.'
             : 'Enter at least three speeds to find the flat region.'}
@@ -204,6 +245,7 @@ function ViscosityStudy({ study, ws }: { study: Study; ws: Workspace }) {
           },
         }}
       />
+      <FitToggle study={study} ws={ws} k="viscosity" hint="Fits viscosity = floor + k · speed^−m (shear thinning that levels off) and applies the level-off change to the fitted curve, so one noisy reading doesn’t move the result. Needs four speeds." />
       <ViscosityResultView study={{ ...study, guide: { ...study.guide, viscosity: g } }} />
     </>
   )
@@ -362,20 +404,30 @@ function GateSealResultView({ study }: { study: Study }) {
   if (!g) return null
   const r = gateSeal(g)
   if (r.points.length < 3) return <p className="muted">Enter at least three hold times with weights.</p>
+  const mass = (v: number) => toDisplay(v, 'mass', study.units)
+  const first = r.points[0].time
+  const last = r.points.at(-1)!.time
+  // Extend the curve to a predicted seal time beyond the range tested, within reason.
+  const end = r.predicted !== null ? Math.min(r.predicted * 1.1, last * 2) : last
+  const fitted = r.basis === 'fit'
   return (
     <>
       <ScatterChart
         title="Part weight vs hold time"
-        points={r.points.map((p) => ({ x: p.time, y: toDisplay(p.weight, 'mass', study.units), highlight: true }))}
+        points={r.points.map((p) => ({ x: p.time, y: mass(p.weight), highlight: true }))}
         xLabel="Hold time (s)"
         yLabel={`Part weight (${unitLabel('mass', study.units)})`}
-        connect
-        vline={r.sealTime !== null ? { x: r.sealTime, label: 'Gate sealed' } : undefined}
+        connect={!r.fit}
+        curve={r.fit ? sampleCurve(r.fit.predict, first, end).map((p) => ({ x: p.x, y: mass(p.y) })) : undefined}
+        vline={r.sealTime !== null ? { x: r.sealTime, label: 'Gate sealed' } : r.predicted !== null && r.predicted <= end ? { x: r.predicted, label: 'Predicted seal' } : undefined}
       />
+      <FitNote fit={r.fit} used={fitted} model={r.fit ? `gate freeze-off, sealed weight ${formatValue(r.fit.sealed, 'mass', study)}` : ''} />
       <Suggestion tone={r.stillRising ? 'warn' : 'info'}>
         {r.stillRising
-          ? 'The weight is still rising at the longest hold time tested, so the gate hasn’t sealed. Add longer hold times.'
-          : `The gate seals at about ${fmt(r.sealTime!)} s (the weight stays within ${pct(g.tolerance ?? DEFAULT_SEAL_TOLERANCE)} of its maximum from there). Use a hold time of about ${fmt(r.suggested!)} s, which adds a margin. If you run a DOE, keep hold time out of it or range it above the seal time.`}
+          ? r.predicted !== null
+            ? `The weight is still rising at the longest hold time tested. The fitted curve predicts the gate seals at about ${fmt(r.predicted)} s; add hold times past that to confirm.`
+            : 'The weight is still rising at the longest hold time tested, so the gate hasn’t sealed. Add longer hold times.'
+          : `The gate seals at about ${fmt(r.sealTime!)} s (the ${fitted ? 'fitted ' : ''}weight stays within ${pct(g.tolerance ?? DEFAULT_SEAL_TOLERANCE)} of its ${fitted ? 'sealed value' : 'maximum'} from there). Use a hold time of about ${fmt(r.suggested!)} s, which adds a margin. If you run a DOE, keep hold time out of it or range it above the seal time.`}
       </Suggestion>
     </>
   )
@@ -403,6 +455,7 @@ function GateSealStudy({ study, ws }: { study: Study; ws: Workspace }) {
           { label: 'Part weight', quantity: 'mass', get: (x) => x.weight, set: (x, v) => ({ ...x, weight: v }) },
         ]}
       />
+      <FitToggle study={study} ws={ws} k="gateSeal" hint="Fits a gate freeze-off curve (the frozen layer in the gate grows with the square root of time) and reads the seal time from it rather than from the nearest hold time tested. Needs four hold times." />
       <GateSealResultView study={{ ...study, guide: { ...study.guide, gateSeal: g } }} />
     </>
   )
@@ -417,6 +470,10 @@ function CoolingResultView({ study }: { study: Study }) {
   if (r.points.length < 3) return <p className="muted">Enter at least three cooling times with measurements.</p>
   const d = (v: number | undefined) => (v === undefined ? undefined : toDisplay(v, g.quantity, study.units))
   const unit = unitLabel(g.quantity, study.units)
+  const first = r.points[0].time
+  const last = r.points.at(-1)!.time
+  const end = r.predicted !== null ? Math.min(r.predicted * 1.1, last * 2) : last
+  const fitted = r.source === 'fit'
   return (
     <>
       <ScatterChart
@@ -424,18 +481,30 @@ function CoolingResultView({ study }: { study: Study }) {
         points={r.points.map((p) => ({ x: p.time, y: d(p.value)!, highlight: true }))}
         xLabel="Cooling time (s)"
         yLabel={unit ? `${g.label || 'Measurement'} (${unit})` : g.label || 'Measurement'}
-        connect
+        connect={!r.fit}
+        curve={r.fit ? sampleCurve(r.fit.predict, first, end).map((p) => ({ x: p.x, y: d(p.y)! })) : undefined}
         band={g.specLow !== undefined || g.specHigh !== undefined ? [d(g.specLow), d(g.specHigh)] : undefined}
-        vline={r.shortest !== null ? { x: r.shortest, label: 'Shortest' } : undefined}
+        vline={r.shortest !== null ? { x: r.shortest, label: 'Shortest' } : r.predicted !== null && r.predicted <= end ? { x: r.predicted, label: 'Predicted' } : undefined}
+      />
+      <FitNote
+        fit={r.fit}
+        used={fitted}
+        model={r.fit ? `exponential approach to ${formatValue(r.fit.plateau, g.quantity, study)}, time constant ${fmt(r.fit.tau)} s` : ''}
       />
       <Suggestion tone={r.shortest === null ? 'warn' : 'info'}>
         {r.shortest === null
-          ? r.basis === 'spec'
-            ? 'Even the longest cooling time tested is out of spec. Check the measurement, or the issue is not cooling.'
-            : 'The measurement keeps changing at the longest time tested. Add longer cooling times.'
+          ? r.predicted !== null
+            ? `The fitted curve ${r.basis === 'spec' ? 'enters the spec' : 'settles'} at about ${fmt(r.predicted)} s, past the longest time tested. Add longer cooling times to confirm.`
+            : r.basis === 'spec'
+              ? fitted
+                ? 'The fitted curve levels off outside the spec, so no cooling time will bring it in. Check the measurement, or the issue is not cooling.'
+                : 'Even the longest cooling time tested is out of spec. Check the measurement, or the issue is not cooling.'
+              : 'The measurement keeps changing at the longest time tested. Add longer cooling times.'
           : r.basis === 'spec'
-            ? `From ${fmt(r.shortest)} s every longer cooling time is in spec. Use about ${fmt(r.shortest)} s or a little more for margin.`
-            : `The measurement settles from about ${fmt(r.shortest)} s (within 5% of its range from the final value). Add a spec to judge against your tolerance.`}
+            ? `From ${fmt(r.shortest)} s ${fitted ? 'the fitted curve stays' : 'every longer cooling time is'} in spec. Use about ${fmt(r.shortest)} s or a little more for margin.`
+            : fitted
+              ? `The measurement settles from about ${fmt(r.shortest)} s (within 5% of its change from the final value on the fitted curve). Add a spec to judge against your tolerance.`
+              : `The measurement settles from about ${fmt(r.shortest)} s (within 5% of its range from the final value). Add a spec to judge against your tolerance.`}
       </Suggestion>
     </>
   )
@@ -481,6 +550,7 @@ function CoolingStudy({ study, ws }: { study: Study; ws: Workspace }) {
           { label: g.label || 'Measurement', quantity: g.quantity, get: (x) => x.value, set: (x, v) => ({ ...x, value: v }) },
         ]}
       />
+      <FitToggle study={study} ws={ws} k="cooling" hint="Fits an exponential approach to a final value (how a part cools in the mold) and solves for the time the curve enters the spec or settles. Needs four cooling times." />
       <CoolingResultView study={{ ...study, guide: { ...study.guide, cooling: g } }} />
     </>
   )

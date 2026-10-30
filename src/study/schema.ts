@@ -117,6 +117,9 @@ const guideBase = {
   notes: z.string().optional(),
 }
 
+/** `fit`: base the result on a fitted curve rather than the raw points (default true). */
+const fitFlag = { fit: z.boolean().optional() }
+
 /**
  * Pre-DOE studies (scientific molding). All values metric. Pressures are plastic pressures:
  * readings are multiplied by `ratio`, the intensification ratio (1 on presses that show plastic pressure).
@@ -124,17 +127,18 @@ const guideBase = {
 export const guideSchema = z.object({
   /** `threshold`: step-to-step viscosity change, in percent, below which the curve counts as level (default 10). */
   viscosity: z
-    .object({ ...guideBase, ratio: z.number().positive(), threshold: z.number().positive().optional(), rows: z.array(z.object({ speed: num, fillTime: num, pressure: num })) })
+    .object({ ...guideBase, ...fitFlag, ratio: z.number().positive(), threshold: z.number().positive().optional(), rows: z.array(z.object({ speed: num, fillTime: num, pressure: num })) })
     .optional(),
   /** Fill-only part weights: one row per shot, one value per cavity. */
   /** `allowable`: allowable imbalance in percent (default 5). */
   balance: z.object({ ...guideBase, allowable: z.number().positive().optional(), rows: z.array(z.array(num)) }).optional(),
   pressureDrop: z.object({ ...guideBase, ratio: z.number().positive(), rows: z.array(z.object({ segment: z.string(), pressure: num })) }).optional(),
   /** `tolerance`: weight change, in percent of the maximum, that counts as sealed (default 0.1). */
-  gateSeal: z.object({ ...guideBase, tolerance: z.number().positive().optional(), rows: z.array(z.object({ time: num, weight: num })) }).optional(),
+  gateSeal: z.object({ ...guideBase, ...fitFlag, tolerance: z.number().positive().optional(), rows: z.array(z.object({ time: num, weight: num })) }).optional(),
   cooling: z
     .object({
       ...guideBase,
+      ...fitFlag,
       label: z.string(),
       quantity,
       specLow: z.number().optional(),
