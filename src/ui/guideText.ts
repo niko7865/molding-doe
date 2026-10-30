@@ -1,4 +1,4 @@
-import { coolingTime, cavityBalance, gateSeal, pressureDrop, processWindow, viscosityCurve, type GuideKey } from '../guide/studies'
+import { balanceVerdict, coolingTime, cavityBalance, DEFAULT_ALLOWABLE_IMBALANCE, gateSeal, pressureDrop, processWindow, viscosityCurve, type GuideKey } from '../guide/studies'
 import { maxPressure } from '../guide/info'
 import type { Study } from '../study/schema'
 import { fmt } from './chartUtils'
@@ -16,7 +16,9 @@ export function guideSummary(study: Study, key: GuideKey): string {
     }
     case 'balance': {
       const r = cavityBalance(g!.balance!, study.cavities)
-      return `Cavity imbalance ${r.imbalance!.toFixed(1)}%.`
+      const allowable = g!.balance!.allowable ?? DEFAULT_ALLOWABLE_IMBALANCE
+      const within = balanceVerdict(r.imbalance!, allowable) === 'good'
+      return `Cavity imbalance ${r.imbalance!.toFixed(1)}% (${within ? 'within' : 'over'} the allowable ${allowable}%).`
     }
     case 'pressureDrop': {
       const r = pressureDrop(g!.pressureDrop!, maxPressure(study))
