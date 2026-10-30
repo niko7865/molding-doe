@@ -30,6 +30,36 @@ export const machineProfileSchema = z.object({
   maxScrewRpm: z.number().positive().optional(),
 })
 
+/**
+ * Resin datasheet values. Everything is optional; temperatures in °C like the rest of the study.
+ * Ranges hold a low and a high, either of which may be blank.
+ */
+const range = z.object({ low: z.number().optional(), high: z.number().optional() })
+export const materialSchema = z.object({
+  /** Resin and grade, e.g. "ABS, general purpose". */
+  name: z.string(),
+  supplier: z.string().optional(),
+  /** Recommended melt (stock) temperature, °C. */
+  melt: range.optional(),
+  /** Recommended mold surface temperature, °C. */
+  mold: range.optional(),
+  /** Drying temperature, °C. */
+  dryTemp: z.number().optional(),
+  /** Drying time, hours. */
+  dryTime: range.optional(),
+  /** Maximum moisture content before molding, percent by weight. */
+  maxMoisture: z.number().optional(),
+  /** Maximum time the melt may sit in the barrel, minutes. */
+  maxResidence: z.number().optional(),
+  /** Melt flow rate, g/10 min, at the datasheet's test conditions. */
+  meltFlow: z.number().optional(),
+  /** Mold shrinkage, percent. */
+  shrinkage: range.optional(),
+  /** Maximum regrind, percent. */
+  maxRegrind: z.number().optional(),
+  notes: z.string().optional(),
+})
+
 export const factorSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -196,6 +226,8 @@ export const studySchema = z.object({
   /** Number of cavities in the mold. */
   cavities: z.number().int().positive(),
   machine: machineProfileSchema.nullable(),
+  /** Missing in files saved before material data existed. */
+  material: materialSchema.optional(),
   factors: z.array(factorSchema),
   responses: z.array(responseSchema),
   /** Set once runs are generated. */
@@ -211,6 +243,7 @@ export const studySchema = z.object({
 })
 
 export type MachineProfile = z.infer<typeof machineProfileSchema>
+export type Material = z.infer<typeof materialSchema>
 export type Factor = z.infer<typeof factorSchema>
 export type Response = z.infer<typeof responseSchema>
 export type Run = z.infer<typeof runSchema>

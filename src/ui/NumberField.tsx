@@ -12,6 +12,8 @@ interface Props {
   integer?: boolean
   /** Keep the label for screen readers only, e.g. inside a table with column headers. */
   hideLabel?: boolean
+  /** Unit to show for a value with no quantity, e.g. "h" or "%". */
+  unit?: string
 }
 
 function format(v: number | undefined, q: Quantity, units: UnitSystem): string {
@@ -27,7 +29,7 @@ function represents(text: string, value: number | undefined, q: Quantity, units:
 }
 
 /** A number input that shows and accepts the user's unit system and reports metric values. */
-export function NumberField({ label, value, quantity, units, onChange, min, integer, hideLabel }: Props) {
+export function NumberField({ label, value, quantity, units, onChange, min, integer, hideLabel, unit: fixedUnit }: Props) {
   const [text, setText] = useState(() => format(value, quantity, units))
 
   // When the stored value or unit system changes from outside this field, re-format the text,
@@ -38,7 +40,7 @@ export function NumberField({ label, value, quantity, units, onChange, min, inte
     if (!represents(text, value, quantity, units)) setText(format(value, quantity, units))
   }
 
-  const unit = unitLabel(quantity, units)
+  const unit = fixedUnit ?? unitLabel(quantity, units)
   return (
     <label className="field">
       <span className={hideLabel ? 'sr-only' : undefined}>
