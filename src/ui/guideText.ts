@@ -1,4 +1,4 @@
-import { balanceVerdict, coolingTime, cavityBalance, DEFAULT_ALLOWABLE_IMBALANCE, gateSeal, pressureDrop, processWindow, viscosityCurve, type GuideKey } from '../guide/studies'
+import { balanceVerdict, coolingTime, cavityBalance, DEFAULT_ALLOWABLE_IMBALANCE, DEFAULT_FLAT_THRESHOLD, gateSeal, pressureDrop, processWindow, viscosityCurve, type GuideKey } from '../guide/studies'
 import { maxPressure } from '../guide/info'
 import type { Study } from '../study/schema'
 import { fmt } from './chartUtils'
@@ -12,7 +12,7 @@ export function guideSummary(study: Study, key: GuideKey): string {
   switch (key) {
     case 'viscosity': {
       const r = viscosityCurve(g!.viscosity!)
-      return r.flatFrom !== null ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)}.` : 'Viscosity had not leveled off at the speeds tested.'
+      return r.flatFrom !== null ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)} (steps under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}%).` : 'Viscosity had not leveled off at the speeds tested.'
     }
     case 'balance': {
       const r = cavityBalance(g!.balance!, study.cavities)

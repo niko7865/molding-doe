@@ -13,6 +13,9 @@ describe('viscosity curve', () => {
     expect(r.points[1].drop).toBeCloseTo(1 - 1040 / 1600, 9)
     // 660 → 594 is a 10% step; 594 → 575 → 564 are under 10%, so it levels off from 60 mm/s.
     expect(r.flatFrom).toBe(60)
+    const rows = speeds.map((s, i) => ({ speed: s, fillTime: fill[i], pressure: hyd[i] }))
+    expect(viscosityCurve({ ratio: 10, threshold: 15, rows }).flatFrom).toBe(40)
+    expect(viscosityCurve({ ratio: 10, threshold: 3, rows }).flatFrom).toBe(80)
   })
 
   it('ignores incomplete rows and sorts by speed', () => {

@@ -5,8 +5,8 @@ import {
   cavityBalance,
   coolingTime,
   DEFAULT_ALLOWABLE_IMBALANCE,
+  DEFAULT_FLAT_THRESHOLD,
   DEFAULT_SEAL_TOLERANCE,
-  FLAT_THRESHOLD,
   gateSeal,
   pressureDrop,
   processWindow,
@@ -157,7 +157,7 @@ function ViscosityResultView({ study }: { study: Study }) {
       />
       <Suggestion>
         {r.flatFrom !== null
-          ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)}: each faster step changes it by less than ${FLAT_THRESHOLD * 100}%. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
+          ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)}: each faster step changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
           : r.points.length >= 3
             ? 'The curve has not leveled off yet. Add faster speeds if the press allows; otherwise use the fastest stable speed, and include injection speed as a factor if you run a DOE.'
             : 'Enter at least three speeds to find the flat region.'}
@@ -178,6 +178,13 @@ function ViscosityStudy({ study, ws }: { study: Study; ws: Workspace }) {
   return (
     <>
       <RatioField study={study} ws={ws} k="viscosity" />
+      <PercentField
+        label="Level-off change (%)"
+        value={g.threshold ?? DEFAULT_FLAT_THRESHOLD}
+        units={study.units}
+        onChange={(threshold) => patchGuide(ws, 'viscosity', DEFAULTS.viscosity(study), (x) => ({ ...x, threshold }))}
+        hint="Viscosity counts as leveled off once each faster step changes it by less than this. 10% is typical."
+      />
       <RowsTable<Row>
         study={study}
         rows={g.rows}
