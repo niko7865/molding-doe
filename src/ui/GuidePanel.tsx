@@ -4,6 +4,8 @@ import {
   balanceVerdict,
   cavityBalance,
   coolingTime,
+  DEFAULT_ALLOWABLE_IMBALANCE,
+  DEFAULT_SEAL_TOLERANCE,
   FLAT_THRESHOLD,
   gateSeal,
   pressureDrop,
@@ -63,6 +65,18 @@ function RatioField<K extends 'viscosity' | 'pressureDrop'>({ study, ws, k }: { 
         onChange={(v) => v !== undefined && v > 0 && patchGuide(ws, k, DEFAULTS[k](study), (x) => ({ ...x, ratio: v }))}
       />
       <span className="muted small grow">Leave at 1 when the press shows plastic pressure. For a hydraulic gauge reading, enter the screw’s intensification ratio (often about 10).</span>
+    </div>
+  )
+}
+
+const pct = (v: number) => `${Number(v.toPrecision(6))}%`
+
+/** A positive percentage setting, such as a study's pass/fail threshold. */
+function PercentField({ label, value, units, onChange, hint }: { label: string; value: number; units: Study['units']; onChange: (v: number) => void; hint: string }) {
+  return (
+    <div className="row">
+      <NumberField label={label} value={value} quantity="none" units={units} onChange={(v) => v !== undefined && v > 0 && onChange(v)} />
+      <span className="muted small grow">{hint}</span>
     </div>
   )
 }
@@ -195,7 +209,8 @@ function BalanceResultView({ study }: { study: Study }) {
   if (!g) return null
   const r = cavityBalance(g, study.cavities)
   if (r.imbalance === null) return <p className="muted">Weigh at least two cavities to compare them.</p>
-  const verdict = balanceVerdict(r.imbalance)
+  const allowable = g.allowable ?? DEFAULT_ALLOWABLE_IMBALANCE
+  const verdict = balanceVerdict(r.imbalance, allowable)
   return (
     <>
       <ScatterChart
@@ -209,10 +224,10 @@ function BalanceResultView({ study }: { study: Study }) {
       <Suggestion tone={verdict === 'poor' ? 'warn' : 'info'}>
         Imbalance is {r.imbalance.toFixed(1)}% (cavity {r.lightest! + 1} lightest, cavity {r.heaviest! + 1} heaviest, over {r.shots} shot{r.shots === 1 ? '' : 's'}).{' '}
         {verdict === 'good'
-          ? 'That is within 5%, so the cavities fill alike.'
+          ? `That is within the allowable ${pct(allowable)}, so the cavities fill alike.`
           : verdict === 'watch'
-            ? 'Between 5% and 10%: workable, but analyze cavities separately as well as the mean.'
-            : 'Over 10%: fix the balance (hot runner zones, gate sizes, vents) before setting the rest of the process.'}
+            ? `Between ${pct(allowable)} and ${pct(2 * allowable)}: workable, but analyze cavities separately as well as the mean.`
+            : `Over ${pct(2 * allowable)}: fix the balance (hot runner zones, gate sizes, vents) before setting the rest of the process.`}
       </Suggestion>
     </>
   )
@@ -225,6 +240,13 @@ function BalanceStudy({ study, ws }: { study: Study; ws: Workspace }) {
   const set = (next: (number | null)[][]) => patchGuide(ws, 'balance', DEFAULTS.balance(study), (x) => ({ ...x, rows: next }))
   return (
     <>
+      <PercentField
+        label="Allowable imbalance (%)"
+        value={g.allowable ?? DEFAULT_ALLOWABLE_IMBALANCE}
+        units={study.units}
+        onChange={(allowable) => patchGuide(ws, 'balance', DEFAULTS.balance(study), (x) => ({ ...x, allowable }))}
+        hint="Imbalance up to this counts as good, up to twice this as workable. 5% is a common limit; tighten it for close-tolerance parts."
+      />
       <RowsTable<(number | null)[]>
         study={study}
         rows={rows}
@@ -346,7 +368,7 @@ function GateSealResultView({ study }: { study: Study }) {
       <Suggestion tone={r.stillRising ? 'warn' : 'info'}>
         {r.stillRising
           ? 'The weight is still rising at the longest hold time tested, so the gate hasn’t sealed. Add longer hold times.'
-          : `The gate seals at about ${fmt(r.sealTime!)} s (the weight stays within 0.1% of its maximum from there). Use a hold time of about ${fmt(r.suggested!)} s, which adds a margin. If you run a DOE, keep hold time out of it or range it above the seal time.`}
+          : `The gate seals at about ${fmt(r.sealTime!)} s (the weight stays within ${pct(g.tolerance ?? DEFAULT_SEAL_TOLERANCE)} of its maximum from there). Use a hold time of about ${fmt(r.suggested!)} s, which adds a margin. If you run a DOE, keep hold time out of it or range it above the seal time.`}
       </Suggestion>
     </>
   )
@@ -357,6 +379,13 @@ function GateSealStudy({ study, ws }: { study: Study; ws: Workspace }) {
   type Row = (typeof g.rows)[number]
   return (
     <>
+      <PercentField
+        label="Gate sealed weight change (%)"
+        value={g.tolerance ?? DEFAULT_SEAL_TOLERANCE}
+        units={study.units}
+        onChange={(tolerance) => patchGuide(ws, 'gateSeal', DEFAULTS.gateSeal(study), (x) => ({ ...x, tolerance }))}
+        hint="The gate counts as sealed once the part weight stays within this much of its maximum. 0.1% is typical."
+      />
       <RowsTable<Row>
         study={study}
         rows={g.rows}

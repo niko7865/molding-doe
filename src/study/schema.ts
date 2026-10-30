@@ -126,9 +126,11 @@ export const guideSchema = z.object({
     .object({ ...guideBase, ratio: z.number().positive(), rows: z.array(z.object({ speed: num, fillTime: num, pressure: num })) })
     .optional(),
   /** Fill-only part weights: one row per shot, one value per cavity. */
-  balance: z.object({ ...guideBase, rows: z.array(z.array(num)) }).optional(),
+  /** `allowable`: allowable imbalance in percent (default 5). */
+  balance: z.object({ ...guideBase, allowable: z.number().positive().optional(), rows: z.array(z.array(num)) }).optional(),
   pressureDrop: z.object({ ...guideBase, ratio: z.number().positive(), rows: z.array(z.object({ segment: z.string(), pressure: num })) }).optional(),
-  gateSeal: z.object({ ...guideBase, rows: z.array(z.object({ time: num, weight: num })) }).optional(),
+  /** `tolerance`: weight change, in percent of the maximum, that counts as sealed (default 0.1). */
+  gateSeal: z.object({ ...guideBase, tolerance: z.number().positive().optional(), rows: z.array(z.object({ time: num, weight: num })) }).optional(),
   cooling: z
     .object({
       ...guideBase,

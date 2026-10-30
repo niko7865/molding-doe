@@ -30,6 +30,8 @@ describe('cavity balance', () => {
     expect(r.heaviest).toBe(0)
     expect(r.lightest).toBe(1)
     expect(balanceVerdict(r.imbalance!)).toBe('watch')
+    expect(balanceVerdict(r.imbalance!, 8)).toBe('good')
+    expect(balanceVerdict(r.imbalance!, 2)).toBe('poor')
   })
 })
 
@@ -48,6 +50,12 @@ describe('gate seal', () => {
     expect(r.sealTime).toBe(4)
     expect(r.suggested).toBeCloseTo(4.5, 9)
     expect(r.stillRising).toBe(false)
+  })
+
+  it('uses a custom sealed weight-change threshold', () => {
+    const rows = [1, 2, 3, 4, 5, 6].map((t, i) => ({ time: t, weight: [30, 30.5, 30.9, 30.96, 30.99, 31][i] }))
+    expect(gateSeal({ rows }).sealTime).toBe(5)
+    expect(gateSeal({ rows, tolerance: 0.2 }).sealTime).toBe(4)
   })
 
   it('says so when the weight is still rising', () => {

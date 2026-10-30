@@ -80,8 +80,12 @@ export function cavityBalance(b: NonNullable<Guide['balance']>, cavities: number
   }
 }
 
-export function balanceVerdict(imbalance: number): 'good' | 'watch' | 'poor' {
-  return imbalance <= 5 ? 'good' : imbalance <= 10 ? 'watch' : 'poor'
+/** Default allowable cavity imbalance, in percent. */
+export const DEFAULT_ALLOWABLE_IMBALANCE = 5
+
+/** Good within the allowable imbalance, poor beyond twice it. */
+export function balanceVerdict(imbalance: number, allowable = DEFAULT_ALLOWABLE_IMBALANCE): 'good' | 'watch' | 'poor' {
+  return imbalance <= allowable ? 'good' : imbalance <= 2 * allowable ? 'watch' : 'poor'
 }
 
 // 3. Pressure drop ---------------------------------------------------------------------------
@@ -113,7 +117,8 @@ export interface GateSealResult {
   stillRising: boolean
 }
 
-export const SEAL_TOLERANCE = 0.001
+/** Default weight change, in percent of the maximum, within which the gate counts as sealed. */
+export const DEFAULT_SEAL_TOLERANCE = 0.1
 
 export function gateSeal(g: NonNullable<Guide['gateSeal']>): GateSealResult {
   const points = g.rows
@@ -122,7 +127,7 @@ export function gateSeal(g: NonNullable<Guide['gateSeal']>): GateSealResult {
     .sort((a, b) => a.time - b.time)
   if (points.length < 3) return { points, sealTime: null, suggested: null, stillRising: false }
   const max = Math.max(...points.map((p) => p.weight))
-  const tol = max * SEAL_TOLERANCE
+  const tol = (max * (g.tolerance ?? DEFAULT_SEAL_TOLERANCE)) / 100
   let idx = points.length - 1
   while (idx > 0 && points.slice(idx - 1).every((p) => p.weight >= max - tol)) idx--
   const n = points.length
