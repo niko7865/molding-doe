@@ -18,13 +18,13 @@ export const GUIDE_STUDIES: { key: GuideKey; title: string; why: string; how: st
     key: 'pressureDrop',
     title: 'Pressure drop',
     why: 'Checks that the press has pressure to spare. A pressure-limited process makes injection speed meaningless.',
-    how: 'Record peak injection pressure when shooting to the end of each flow segment: air shot through the nozzle, then the runner, then past the gate, then the part at transfer.',
+    how: 'Record cumulative peak injection pressure when shooting to the end of each flow segment in order: air shot through the nozzle, then the runner, then past the gate, then the part at transfer.',
   },
   {
     key: 'gateSeal',
     title: 'Gate seal',
     why: 'Finds the hold time after which the gate is frozen and extra hold adds nothing but cycle time.',
-    how: 'At your process, step hold time up from short to long. Weigh the part (or one cavity) at each hold time.',
+    how: 'At your process, step hold time up from short to long. Weigh degated parts (without the runner) at each hold time.',
   },
   {
     key: 'cooling',

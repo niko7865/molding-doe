@@ -23,6 +23,8 @@ export type SplitPlotResult =
       /** Terms tested against whole-plot error, then those tested against subplot error. */
       rows: (AnovaRow & { stratum: 'whole' | 'sub' })[]
       coefficients: (Coefficient & { stratum: 'whole' | 'sub' | null })[]
+      /** Terms confounded with whole plots and not separately estimable in their stratum. */
+      aliased: Term[]
     }
   | { ok: false; reason: string }
 
@@ -31,9 +33,12 @@ export function isWholePlotTerm(t: Term, hardToChange: number[]): boolean {
   return t.every((p, j) => p === 0 || hardToChange.includes(j))
 }
 
+const isCenterRow = (row: number[]) => row.every((v) => Math.abs(v) <= 1e-9)
+
 /**
  * Split-plot analysis for a balanced design (equal whole-plot sizes, hard-to-change factors
- * constant within each whole plot). Whole-plot terms are tested on whole-plot means against the
+ * constant within each whole plot; pure center-point whole plots may have a different size in
+ * linear/interaction models). Whole-plot terms are tested on whole-plot means against the
  * variation between whole plots; subplot terms are tested within whole plots. This is the classic
  * two-stratum analysis, which matches REML for balanced designs.
  */
@@ -41,10 +46,6 @@ export function splitPlotAnalysis(input: SplitPlotInput): SplitPlotResult {
   const { x, y, wholePlots, hardToChange } = input
   const ids = [...new Set(wholePlots)]
   const members = ids.map((id) => wholePlots.flatMap((w, i) => (w === id ? [i] : [])))
-  const m = members[0]?.length ?? 0
-  if (members.some((g) => g.length !== m)) {
-    return { ok: false, reason: 'Whole plots have different numbers of runs (for example after an aborted run), so the split-plot analysis is not exact.' }
-  }
   for (const g of members) {
     for (const j of hardToChange) {
       if (g.some((i) => x[i][j] !== x[g[0]][j])) return { ok: false, reason: 'A hard-to-change factor varies within a whole plot.' }
@@ -53,11 +54,27 @@ export function splitPlotAnalysis(input: SplitPlotInput): SplitPlotResult {
 
   const wpTerms = input.terms.filter((t) => isWholePlotTerm(t, hardToChange))
   const spTerms = input.terms.filter((t) => !isWholePlotTerm(t, hardToChange))
+  const allEqual = members.every((g) => g.length === (members[0]?.length ?? 0))
+  const wpHasQuadratic = wpTerms.some((t) => t.some((p) => p > 1))
+  const nonCenter = members.filter((g) => !g.every((i) => isCenterRow(x[i])))
+  const nonCenterEqual = nonCenter.length > 0 && nonCenter.every((g) => g.length === nonCenter[0].length)
+
+  // Center points in their own whole plot don't affect linear whole-plot contrasts, so allow them
+  // to have a different plot size as long as all factorial whole plots are balanced.
+  let wpMembers = members
+  if (!allEqual) {
+    if (!wpHasQuadratic && nonCenterEqual && nonCenter.length < members.length) {
+      wpMembers = nonCenter
+    } else {
+      return { ok: false, reason: 'Whole plots have different numbers of runs (for example after an aborted run), so the split-plot analysis is not exact.' }
+    }
+  }
+  const m = wpMembers[0]?.length ?? 0
   const fit = fitModel({ x, y, terms: input.terms, factorNames: input.factorNames })
 
   // Whole-plot stratum: regress whole-plot means on the whole-plot terms.
-  const means = members.map((g) => g.reduce((a, i) => a + y[i], 0) / m)
-  const wpX = members.map((g) => x[g[0]])
+  const means = wpMembers.map((g) => g.reduce((a, i) => a + y[i], 0) / m)
+  const wpX = wpMembers.map((g) => x[g[0]])
   const wpFit = fitModel({ x: wpX, y: means, terms: wpTerms, factorNames: input.factorNames })
   const wpDf = wpFit.dfError
   if (wpDf < 1) {
@@ -94,5 +111,6 @@ export function splitPlotAnalysis(input: SplitPlotInput): SplitPlotResult {
     subplotError: { df: spFit.dfError, ms: spFit.mse },
     rows,
     coefficients,
+    aliased: [...wpFit.aliased, ...spFit.aliased],
   }
 }

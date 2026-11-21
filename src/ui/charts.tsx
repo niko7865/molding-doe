@@ -327,7 +327,7 @@ export function LinePanels({ title, panels, yLabel }: { title: string; panels: L
                 {p.series.map((s, si) => (
                   <g key={s.name}>
                     <polyline points={p.xs.map((xv, i) => `${x(xv)},${y(s.ys[i])}`).join(' ')} className={`line s${si + 1}`} />
-                    {[0, p.xs.length - 1].map((i) => (
+                    {[0, ...(p.xs.length > 2 ? [Math.floor(p.xs.length / 2)] : []), p.xs.length - 1].map((i) => (
                       <g key={i} onMouseEnter={() => setHover({ x: x(p.xs[i]), y: y(s.ys[i]), text: <>{p.title}{p.series.length > 1 ? `, ${s.name}` : ''}: {fmt(s.ys[i])}</> })} onMouseLeave={() => setHover(null)}>
                         <circle cx={x(p.xs[i])} cy={y(s.ys[i])} r={10} fill="transparent" />
                         <circle cx={x(p.xs[i])} cy={y(s.ys[i])} r={4} className={`marker s${si + 1}`} />

@@ -141,6 +141,7 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
   const done = study.runs.filter((r) => r.status === 'done').length
   const doe = doeEnabled(study)
   const design = study.design
+  const sheets = useMemo(() => workbook(study), [study])
   const toggle = (key: string) => setPicked(keys.includes(key) ? keys.filter((k) => k !== key) : all.map((s) => s.key).filter((k) => k === key || keys.includes(k)))
 
   return (
@@ -150,25 +151,27 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
           <h2>Report</h2>
           <div className="row">
             {doe && (
-              <>
-                <button className="btn" disabled={!study.runs.length} onClick={() => downloadBlob(toCsv(runTable(study)), 'text/csv;charset=utf-8', `${baseName(study)} runs.csv`)}>
-                  Download CSV
-                </button>
-                <button
-                  className="btn"
-                  disabled={!study.runs.length}
-                  onClick={() => downloadBlob(buildXlsx(workbook(study)) as Uint8Array<ArrayBuffer>, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `${baseName(study)}.xlsx`)}
-                >
-                  Download Excel
-                </button>
-              </>
+              <button className="btn" disabled={!study.runs.length} onClick={() => downloadBlob(toCsv(runTable(study)), 'text/csv;charset=utf-8', `${baseName(study)} runs.csv`)}>
+                Download CSV
+              </button>
             )}
+            <button
+              className="btn"
+              disabled={!sheets.length}
+              onClick={() => downloadBlob(buildXlsx(sheets) as Uint8Array<ArrayBuffer>, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `${baseName(study)}.xlsx`)}
+            >
+              Download Excel
+            </button>
             <button className="btn primary" onClick={() => window.print()}>
               Print or save as PDF
             </button>
           </div>
         </div>
-        {doe && <p className="muted small">The CSV and Excel files hold the run table in run order with setpoints and raw results, for cross-checking in Minitab or Excel.</p>}
+        <p className="muted small">
+          {doe
+            ? 'The Excel workbook includes the DOE run table, factors, process settings, and completed molding studies; CSV holds the run table in run order.'
+            : 'The Excel workbook includes the completed molding studies and their recorded process settings.'}
+        </p>
         <fieldset className="field">
           <legend>Include</legend>
           <div className="terms">
@@ -294,12 +297,18 @@ export function ReportPanel({ study }: { ws: Workspace; study: Study }) {
               </p>
               {design?.type === 'fractional-factorial' && design.generators && (
                 <p className="small">
-                  Generators {design.generators.join(', ')}; defining relation I = {definingRelationNames(design.generators).join(' = ')}. Aliases:{' '}
-                  {aliasStructure(design.factorIds.length, design.generators)
-                    .filter((r) => r.aliases.length)
-                    .map((r) => `${r.effect} = ${r.aliases.join(' = ')}`)
-                    .join('; ')}
-                  .
+                  {design.stages?.some((s) => s.kind === 'foldover')
+                    ? `Initial generators ${design.generators.join(', ')} (folded over in a later stage to clear aliases).`
+                    : (
+                        <>
+                          Generators {design.generators.join(', ')}; defining relation I = {definingRelationNames(design.generators).join(' = ')}. Aliases:{' '}
+                          {aliasStructure(design.factorIds.length, design.generators)
+                            .filter((r) => r.aliases.length)
+                            .map((r) => `${r.effect} = ${r.aliases.join(' = ')}`)
+                            .join('; ')}
+                          .
+                        </>
+                      )}
                 </p>
               )}
             </section>

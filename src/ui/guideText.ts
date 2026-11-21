@@ -11,19 +11,28 @@ export function guideSummary(study: Study, key: GuideKey): string {
   const g = study.guide
   switch (key) {
     case 'viscosity': {
-      const r = viscosityCurve(g!.viscosity!)
+      const r = viscosityCurve(g!.viscosity!, maxPressure(study))
       const how = r.basis === 'fit' ? `, fitted curve, R² ${r.fit!.r2.toFixed(3)}` : ''
-      return r.flatFrom !== null ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)} (steps under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}%${how}).` : 'Viscosity had not leveled off at the speeds tested.'
+      const stepDesc = r.basis === 'fit' ? `under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}% per +50% speed` : `steps under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}%`
+      return r.flatFrom !== null ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)} (${stepDesc}${how}).` : 'Viscosity had not leveled off at the speeds tested.'
     }
     case 'balance': {
       const r = cavityBalance(g!.balance!, study.cavities)
       const allowable = g!.balance!.allowable ?? DEFAULT_ALLOWABLE_IMBALANCE
-      const within = balanceVerdict(r.imbalance!, allowable) === 'good'
-      return `Cavity imbalance ${r.imbalance!.toFixed(1)}% (${within ? 'within' : 'over'} the allowable ${allowable}%).`
+      const verdict = balanceVerdict(r.imbalance!, allowable)
+      const note =
+        verdict === 'good'
+          ? `within the allowable ${allowable}%`
+          : verdict === 'watch'
+            ? `workable — over ${allowable}%, analyze cavities separately`
+            : `poor — over ${2 * allowable}%, fix balance first`
+      return `Cavity imbalance ${r.imbalance!.toFixed(1)}% (${note}).`
     }
     case 'pressureDrop': {
       const r = pressureDrop(g!.pressureDrop!, maxPressure(study))
-      return r.usage === null ? 'Press maximum not entered.' : `Fill uses ${(r.usage * 100).toFixed(0)}% of the press maximum${r.verdict === 'limited' ? ': pressure-limited' : ''}.`
+      if (r.usage === null) return 'Press maximum not entered.'
+      const suffix = r.verdict === 'limited' ? ': pressure-limited' : r.verdict === 'tight' ? ': tight headroom' : ''
+      return `Fill uses ${(r.usage * 100).toFixed(0)}% of the press maximum${suffix}.`
     }
     case 'gateSeal': {
       const r = gateSeal(g!.gateSeal!)
@@ -34,7 +43,11 @@ export function guideSummary(study: Study, key: GuideKey): string {
     case 'cooling': {
       const r = coolingTime(g!.cooling!)
       const how = r.source === 'fit' ? ` (fitted curve, R² ${r.fit!.r2.toFixed(3)})` : ''
-      if (r.shortest !== null) return `Shortest acceptable cooling time about ${fmt(r.shortest)} s${how}.`
+      if (r.shortest !== null) {
+        return r.unbracketed
+          ? `Every tested cooling time from ${fmt(r.shortest)} s was already in spec${how}; test shorter times or check stability.`
+          : `Shortest acceptable cooling time about ${fmt(r.shortest)} s${how}.`
+      }
       return r.predicted !== null ? `No acceptable cooling time in the range tested; the fitted curve predicts about ${fmt(r.predicted)} s.` : 'No acceptable cooling time found in the range tested.'
     }
     case 'window': {

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import type { SectionId } from '../app/sections'
 import { GUIDE_STUDIES, maxPressure, statusOf } from '../guide/info'
 import {
   balanceVerdict,
@@ -174,26 +175,46 @@ function viscosityUnit(study: Study) {
   return `${unitLabel('pressure', study.units)}·s`
 }
 
-function ViscosityResultView({ study }: { study: Study }) {
+function ViscosityResultView({ study, xAxis = 'speed' }: { study: Study; xAxis?: 'speed' | 'shear' }) {
   const g = study.guide?.viscosity
   if (!g) return null
-  const r = viscosityCurve(g)
+  const max = maxPressure(study)
+  const r = viscosityCurve(g, max)
   if (r.points.length < 2) return <p className="muted">Enter at least three speeds to draw the curve.</p>
   const visc = (v: number) => toDisplay(v, 'pressure', study.units)
-  const max = maxPressure(study)
-  const limitedFrom = max ? r.points.find((p) => p.pressure >= 0.95 * max)?.speed : undefined
-  const speeds = r.points.map((p) => p.speed)
+  const limited = r.points.filter((p) => p.pressureLimited)
+  const limitedFrom = limited[0]?.speed
+  const reliable = r.points.filter((p) => !p.pressureLimited)
+  const fitPoints = reliable.length >= 3 ? reliable : r.points
+  const speeds = fitPoints.map((p) => p.speed)
   const fitted = r.basis === 'fit'
+  const byShear = xAxis === 'shear'
+  const flatPt = r.flatFrom !== null ? r.points.find((p) => p.speed >= r.flatFrom!) : undefined
   return (
     <>
       <ScatterChart
-        title="Relative viscosity vs injection speed"
-        points={r.points.map((p) => ({ x: toDisplay(p.speed, 'speed', study.units), y: visc(p.viscosity), highlight: true }))}
-        xLabel={`Injection speed (${unitLabel('speed', study.units)})`}
+        title={byShear ? 'Relative viscosity vs effective shear rate' : 'Relative viscosity vs injection speed'}
+        points={r.points.map((p) => ({
+          x: byShear ? p.shearRate : toDisplay(p.speed, 'speed', study.units),
+          y: visc(p.viscosity),
+          label: p.pressureLimited ? 'Pressure-limited' : `${formatValue(p.speed, 'speed', study)} (${fmt(p.shearRate)} 1/s)`,
+          highlight: true,
+          group2: p.pressureLimited,
+        }))}
+        xLabel={byShear ? 'Effective shear rate, 1 / fill time (1/s)' : `Injection speed (${unitLabel('speed', study.units)})`}
         yLabel={`Relative viscosity (${viscosityUnit(study)})`}
-        connect={!r.fit}
-        curve={r.fit ? sampleCurve(r.fit.predict, Math.min(...speeds), Math.max(...speeds)).map((p) => ({ x: toDisplay(p.x, 'speed', study.units), y: visc(p.y) })) : undefined}
-        vline={r.flatFrom !== null ? { x: toDisplay(r.flatFrom, 'speed', study.units), label: 'Levels off' } : undefined}
+        legend={limited.length > 0 ? ['Usable', 'Pressure-limited'] : undefined}
+        connect={byShear || !r.fit}
+        curve={!byShear && r.fit ? sampleCurve(r.fit.predict, Math.min(...speeds), Math.max(...speeds)).map((p) => ({ x: toDisplay(p.x, 'speed', study.units), y: visc(p.y) })) : undefined}
+        vline={
+          r.flatFrom !== null
+            ? byShear
+              ? flatPt
+                ? { x: flatPt.shearRate, label: 'Levels off' }
+                : undefined
+              : { x: toDisplay(r.flatFrom, 'speed', study.units), label: 'Levels off' }
+            : undefined
+        }
       />
       <FitNote
         fit={r.fit}
@@ -202,13 +223,18 @@ function ViscosityResultView({ study }: { study: Study }) {
       />
       <Suggestion>
         {r.flatFrom !== null
-          ? `${fitted ? 'On the fitted curve, viscosity' : 'Viscosity'} levels off from ${formatValue(r.flatFrom, 'speed', study)}: each faster step changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
+          ? fitted
+            ? `On the fitted curve, viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)}: a 50% faster speed changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
+            : `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)}: each faster step changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
           : r.points.length >= 3
             ? 'The curve has not leveled off yet. Add faster speeds if the press allows; otherwise use the fastest stable speed, and include injection speed as a factor if you run a DOE.'
             : 'Enter at least three speeds to find the flat region.'}
       </Suggestion>
       {limitedFrom !== undefined && (
-        <Suggestion tone="warn">From {formatValue(limitedFrom, 'speed', study)} the peak pressure is within 5% of the press maximum, so the press is pressure-limited there and the curve isn’t reliable.</Suggestion>
+        <Suggestion tone="warn">
+          From {formatValue(limitedFrom, 'speed', study)} the peak pressure is within 5% of the press maximum, so the press is pressure-limited there
+          {reliable.length >= 3 ? ' and those points are excluded from the curve fit and level-off check.' : ' and the curve isn’t reliable.'}
+        </Suggestion>
       )}
     </>
   )
@@ -216,7 +242,8 @@ function ViscosityResultView({ study }: { study: Study }) {
 
 function ViscosityStudy({ study, ws }: { study: Study; ws: Workspace }) {
   const g = study.guide?.viscosity ?? DEFAULTS.viscosity(study)
-  const r = viscosityCurve(g)
+  const r = viscosityCurve(g, maxPressure(study))
+  const [xAxis, setXAxis] = useState<'speed' | 'shear'>('speed')
   type Row = (typeof g.rows)[number]
   const set = (rows: Row[]) => patchGuide(ws, 'viscosity', DEFAULTS.viscosity(study), (x) => ({ ...x, rows }))
   const byRow = (row: Row) => r.points.find((p) => p.speed === row.speed && p.fillTime === row.fillTime)
@@ -228,7 +255,7 @@ function ViscosityStudy({ study, ws }: { study: Study; ws: Workspace }) {
         value={g.threshold ?? DEFAULT_FLAT_THRESHOLD}
         units={study.units}
         onChange={(threshold) => patchGuide(ws, 'viscosity', DEFAULTS.viscosity(study), (x) => ({ ...x, threshold }))}
-        hint="Viscosity counts as leveled off once each faster step changes it by less than this. 10% is typical."
+        hint="Viscosity counts as leveled off once a +50% speed increase on the fitted curve (or each faster step without a fit) changes it by less than this. 10% is typical."
       />
       <RowsTable<Row>
         study={study}
@@ -241,16 +268,29 @@ function ViscosityStudy({ study, ws }: { study: Study; ws: Workspace }) {
           { label: 'Peak pressure', quantity: 'pressure', get: (x) => x.pressure, set: (x, v) => ({ ...x, pressure: v }) },
         ]}
         extra={{
-          label: `Viscosity (${viscosityUnit(study)}) · drop`,
+          label: `Viscosity (${viscosityUnit(study)}) · 1/t · drop`,
           value: (row) => {
             const p = byRow(row)
             if (!p) return '–'
-            return `${fmt(toDisplay(p.viscosity, 'pressure', study.units))}${p.drop !== null ? ` · ${(p.drop * 100).toFixed(0)}%` : ''}`
+            return `${fmt(toDisplay(p.viscosity, 'pressure', study.units))} · ${fmt(p.shearRate)} s⁻¹${p.drop !== null ? ` · ${(p.drop * 100).toFixed(0)}%` : ''}`
           },
         }}
       />
-      <FitToggle study={study} ws={ws} k="viscosity" hint="Fits viscosity = floor + k · speed^−m (shear thinning that levels off) and applies the level-off change to the fitted curve, so one noisy reading doesn’t move the result. Needs four speeds." />
-      <ViscosityResultView study={{ ...study, guide: { ...study.guide, viscosity: g } }} />
+      <div className="row">
+        <fieldset className="field">
+          <legend>Chart horizontal axis</legend>
+          <div className="segmented">
+            <button className={xAxis === 'speed' ? 'active' : ''} aria-pressed={xAxis === 'speed'} onClick={() => setXAxis('speed')}>
+              Injection speed
+            </button>
+            <button className={xAxis === 'shear' ? 'active' : ''} aria-pressed={xAxis === 'shear'} onClick={() => setXAxis('shear')}>
+              Effective shear rate (1/s)
+            </button>
+          </div>
+        </fieldset>
+      </div>
+      <FitToggle study={study} ws={ws} k="viscosity" hint="Fits viscosity = floor + k · speed^−m (with floor ≥ 0) and evaluates the level-off change over a fixed +50% speed step so row spacing or one noisy reading doesn’t move the result. Needs four usable speeds." />
+      <ViscosityResultView study={{ ...study, guide: { ...study.guide, viscosity: g } }} xAxis={xAxis} />
     </>
   )
 }
@@ -264,11 +304,19 @@ function BalanceResultView({ study }: { study: Study }) {
   if (r.imbalance === null) return <p className="muted">Weigh at least two cavities to compare them.</p>
   const allowable = g.allowable ?? DEFAULT_ALLOWABLE_IMBALANCE
   const verdict = balanceVerdict(r.imbalance, allowable)
+  const shotPoints = r.shotsPerCavity.flatMap((shots, c) =>
+    shots.length > 1
+      ? shots.map((w, s) => ({ x: c + 1, y: toDisplay(w, 'mass', study.units), label: `Cavity ${c + 1}, shot ${s + 1}`, highlight: false }))
+      : [],
+  )
+  const meanPoints = r.means.flatMap((m, c) =>
+    m === null ? [] : [{ x: c + 1, y: toDisplay(m, 'mass', study.units), label: `Cavity ${c + 1} mean`, highlight: true }],
+  )
   return (
     <>
       <ScatterChart
-        title="Mean fill-only weight per cavity"
-        points={r.means.flatMap((m, c) => (m === null ? [] : [{ x: c + 1, y: toDisplay(m, 'mass', study.units), label: `Cavity ${c + 1}`, highlight: true }]))}
+        title="Fill-only weight per cavity (individual shots and cavity mean)"
+        points={[...shotPoints, ...meanPoints]}
         xLabel="Cavity"
         yLabel={`Weight (${unitLabel('mass', study.units)})`}
         xTicks={r.means.map((_, c) => c + 1)}
@@ -352,6 +400,11 @@ function PressureDropResultView({ study }: { study: Study }) {
             return ` The largest drop, ${pressureText(r.segments[i].drop, study)}, is ${i === 0 ? `up to ${r.segments[0].segment}` : `between ${r.segments[i - 1].segment} and ${r.segments[i].segment}`}.`
           })()}
       </Suggestion>
+      {r.nonIncreasing && (
+        <Suggestion tone="warn">
+          Pressure fell from one segment to the next. Enter cumulative peak injection pressure at the end of each segment in flow order, not the step difference.
+        </Suggestion>
+      )}
     </>
   )
 }
@@ -495,7 +548,7 @@ function CoolingResultView({ study }: { study: Study }) {
         used={fitted}
         model={r.fit ? `exponential approach to ${formatValue(r.fit.plateau, g.quantity, study)}, time constant ${fmt(r.fit.tau)} s` : ''}
       />
-      <Suggestion tone={r.shortest === null ? 'warn' : 'info'}>
+      <Suggestion tone={r.shortest === null || r.unbracketed ? 'warn' : 'info'}>
         {r.shortest === null
           ? r.predicted !== null
             ? `The fitted curve ${r.basis === 'spec' ? 'enters the spec' : 'settles'} at about ${fmt(r.predicted)} s, past the longest time tested. Add longer cooling times to confirm.`
@@ -505,7 +558,9 @@ function CoolingResultView({ study }: { study: Study }) {
                 : 'Even the longest cooling time tested is out of spec. Check the measurement, or the issue is not cooling.'
               : 'The measurement keeps changing at the longest time tested. Add longer cooling times.'
           : r.basis === 'spec'
-            ? `From ${fmt(r.shortest)} s ${fitted ? 'the fitted curve stays' : 'every longer cooling time is'} in spec. Use about ${fmt(r.shortest)} s or a little more for margin.`
+            ? r.unbracketed
+              ? `Every cooling time tested from ${fmt(r.shortest)} s was already inside the spec, so the spec boundary was not crossed. Test shorter cooling times or check when the measurement settles before reducing cycle time.`
+              : `From ${fmt(r.shortest)} s ${fitted ? 'the fitted curve stays' : 'every longer cooling time is'} in spec. Use about ${fmt(r.shortest)} s or a little more for margin.`
             : fitted
               ? `The measurement settles from about ${fmt(r.shortest)} s (within 5% of its change from the final value on the fitted curve). Add a spec to judge against your tolerance.`
               : `The measurement settles from about ${fmt(r.shortest)} s (within 5% of its range from the final value). Add a spec to judge against your tolerance.`}
@@ -620,12 +675,15 @@ function WindowResultView({ study }: { study: Study }) {
   )
 }
 
-function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
+function WindowStudy({ study, ws, go }: { study: Study; ws: Workspace; go?: (id: SectionId) => void }) {
   const g = study.guide?.window ?? DEFAULTS.window(study)
   type Row = (typeof g.rows)[number]
   const temp = TEMPERATURES[g.temperature]
   const set = (rows: Row[]) => patchGuide(ws, 'window', DEFAULTS.window(study), (x) => ({ ...x, rows }))
   const r = processWindow(g)
+  const [appliedKey, setAppliedKey] = useState<string | null>(null)
+  const windowKey = r.temp && r.hold ? `${g.temperature}:${r.temp.join(',')}:${r.hold.join(',')}` : null
+  const applied = windowKey !== null && appliedKey === windowKey
   const pick = (temperature: keyof typeof TEMPERATURES) => {
     if (temperature === g.temperature) return
     if (g.rows.length && !confirm(`Switching to ${TEMPERATURES[temperature].label.toLowerCase()} clears the ${g.rows.length} settings entered. Continue?`)) return
@@ -638,14 +696,16 @@ function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
     for (const m of [tl, (tl + th) / 2, th]) for (const h of [hl, (hl + hh) / 2, hh]) rows.push({ temp: m, hold: h, outcome: 'good' })
     set(rows)
   }
-  const apply = () =>
+  const apply = () => {
     ws.update((s) => {
       const withRange = (factors: Study['factors'], key: string, range: [number, number]) =>
         factors.some((f) => f.preset === key)
           ? factors.map((f) => (f.preset === key ? { ...f, low: range[0], high: range[1] } : f))
           : [...factors, { ...factorFromPreset(key), low: range[0], high: range[1] }]
-      return { ...s, factors: withRange(withRange(s.factors, temp.preset, r.temp!), 'hold_pressure', r.hold!) }
+      return { ...s, doe: true, factors: withRange(withRange(s.factors, temp.preset, r.temp!), 'hold_pressure', r.hold!) }
     })
+    setAppliedKey(windowKey)
+  }
   return (
     <>
       <fieldset className="field">
@@ -719,11 +779,21 @@ function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
       )}
       <WindowResultView study={{ ...study, guide: { ...study.guide, window: g } }} />
       <MaterialChecks study={{ ...study, factors: [], guide: { window: g } }} />
-      {r.temp && r.hold && doeEnabled(study) && (
+      {r.temp && r.hold && (
         <div className="row">
           <button className="btn" disabled={study.runs.length > 0} onClick={apply}>
-            Use as DOE ranges for {temp.label.toLowerCase()} and hold pressure
+            {doeEnabled(study) ? `Use as DOE ranges for ${temp.label.toLowerCase()} and hold pressure` : `Use these ranges to start a DOE`}
           </button>
+          {applied && (
+            <>
+              <span className="small">✓ Applied to Design tab.</span>
+              {go && (
+                <button className="link" onClick={() => go('design')}>
+                  Go to Design →
+                </button>
+              )}
+            </>
+          )}
           {study.runs.length > 0 && <span className="muted small">Runs already exist; change factor ranges on the Design tab before creating new runs.</span>}
         </div>
       )}
@@ -733,7 +803,7 @@ function WindowStudy({ study, ws }: { study: Study; ws: Workspace }) {
 
 // Panel --------------------------------------------------------------------------------------
 
-const VIEWS: Record<GuideKey, (p: { study: Study; ws: Workspace }) => ReactNode> = {
+const VIEWS: Record<GuideKey, (p: { study: Study; ws: Workspace; go?: (id: SectionId) => void }) => ReactNode> = {
   viscosity: ViscosityStudy,
   balance: BalanceStudy,
   pressureDrop: PressureDropStudy,
@@ -757,7 +827,7 @@ export function GuideResult({ study, k }: { study: Study; k: GuideKey }) {
   return <View study={study} />
 }
 
-export function GuidePanel({ ws, study }: { ws: Workspace; study: Study }) {
+export function GuidePanel({ ws, study, go }: { ws: Workspace; study: Study; go?: (id: SectionId) => void }) {
   const [active, setActive] = useState<GuideKey>('viscosity')
   const index = GUIDE_STUDIES.findIndex((s) => s.key === active)
   const info = GUIDE_STUDIES[index]
@@ -797,7 +867,7 @@ export function GuidePanel({ ws, study }: { ws: Workspace; study: Study }) {
           <p className="muted">Skipped. The report will flag it.</p>
         ) : (
           <>
-            <View study={study} ws={ws} />
+            <View study={study} ws={ws} go={go} />
             <ProcessSettings key={active} study={study} k={active} onChange={setMeta} />
           </>
         )}
@@ -809,13 +879,19 @@ export function GuidePanel({ ws, study }: { ws: Workspace; study: Study }) {
           <input type="checkbox" checked={!!current?.skipped} onChange={(e) => setMeta({ skipped: e.target.checked })} />
           Skip this study
         </label>
-        {next && (
-          <div className="row">
+        <div className="row">
+          {next ? (
             <button className="btn" onClick={() => setActive(next.key)}>
-              Next: {next.title}
+              Next: {next.title} →
             </button>
-          </div>
-        )}
+          ) : (
+            go && (
+              <button className="btn primary" onClick={() => go(doeEnabled(study) ? 'design' : 'report')}>
+                Next: {doeEnabled(study) ? 'Design' : 'Report'} →
+              </button>
+            )
+          )}
+        </div>
       </section>
     </div>
   )

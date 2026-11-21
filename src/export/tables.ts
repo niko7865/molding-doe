@@ -1,5 +1,6 @@
-import { GUIDE_STUDIES } from '../guide/info'
-import type { Response, Run, Study } from '../study/schema'
+import { GUIDE_STUDIES, maxPressure } from '../guide/info'
+import { cavityBalance, coolingTime, gateSeal, pressureDrop, processWindow, viscosityCurve } from '../guide/studies'
+import { doeEnabled, type Response, type Run, type Study } from '../study/schema'
 import { settingsTable } from '../study/settings'
 import { toDisplay, unitLabel } from '../study/units'
 import type { Cell, Sheet } from './xlsx'
@@ -87,16 +88,134 @@ export function settingsSheet(study: Study): Cell[][] {
   ]
 }
 
+/** One sheet per scientific molding study that has recorded data, in display units. */
+export function guideSheets(study: Study): Sheet[] {
+  const g = study.guide
+  if (!g) return []
+  const out: Sheet[] = []
+  const u = study.units
+  const pUnit = unitLabel('pressure', u)
+  const sUnit = unitLabel('speed', u)
+  const mUnit = unitLabel('mass', u)
+  const tUnit = unitLabel('temperature', u)
+
+  if (g.viscosity && !g.viscosity.skipped) {
+    const r = viscosityCurve(g.viscosity, maxPressure(study))
+    if (r.points.length) {
+      out.push({
+        name: 'Viscosity curve',
+        rows: [
+          [
+            withUnit('Injection speed', sUnit),
+            'Fill time (s)',
+            'Shear rate (1/s)',
+            withUnit('Plastic pressure', pUnit),
+            withUnit('Relative viscosity', `${pUnit}·s`),
+            'Step drop (%)',
+            'Pressure-limited',
+          ],
+          ...r.points.map((p): Cell[] => [
+            clean(toDisplay(p.speed, 'speed', u)),
+            clean(p.fillTime),
+            clean(p.shearRate),
+            clean(toDisplay(p.pressure, 'pressure', u)),
+            clean(toDisplay(p.viscosity, 'pressure', u)),
+            p.drop === null ? null : clean(p.drop * 100),
+            p.pressureLimited ? 'Yes' : 'No',
+          ]),
+        ],
+      })
+    }
+  }
+
+  if (g.balance && !g.balance.skipped) {
+    const r = cavityBalance(g.balance, study.cavities)
+    const filledRows = g.balance.rows.filter((row) => row.some((v) => v !== null))
+    if (filledRows.length) {
+      out.push({
+        name: 'Cavity balance',
+        rows: [
+          ['Shot', ...Array.from({ length: study.cavities }, (_, c) => withUnit(`Cavity ${c + 1}`, mUnit))],
+          ...filledRows.map((row, i): Cell[] => [
+            i + 1,
+            ...Array.from({ length: study.cavities }, (_, c) => (row[c] === null || row[c] === undefined ? null : clean(toDisplay(row[c]!, 'mass', u)))),
+          ]),
+          ['Mean', ...r.means.map((m) => (m === null ? null : clean(toDisplay(m, 'mass', u))))],
+        ],
+      })
+    }
+  }
+
+  if (g.pressureDrop && !g.pressureDrop.skipped) {
+    const r = pressureDrop(g.pressureDrop, maxPressure(study))
+    if (r.segments.length) {
+      out.push({
+        name: 'Pressure drop',
+        rows: [
+          ['Flow segment', withUnit('Cumulative plastic pressure', pUnit), withUnit('Segment drop', pUnit)],
+          ...r.segments.map((s): Cell[] => [s.segment, clean(toDisplay(s.pressure, 'pressure', u)), clean(toDisplay(s.drop, 'pressure', u))]),
+        ],
+      })
+    }
+  }
+
+  if (g.gateSeal && !g.gateSeal.skipped) {
+    const r = gateSeal(g.gateSeal)
+    if (r.points.length) {
+      out.push({
+        name: 'Gate seal',
+        rows: [
+          ['Hold time (s)', withUnit('Part weight', mUnit)],
+          ...r.points.map((p): Cell[] => [clean(p.time), clean(toDisplay(p.weight, 'mass', u))]),
+        ],
+      })
+    }
+  }
+
+  if (g.cooling && !g.cooling.skipped) {
+    const r = coolingTime(g.cooling)
+    if (r.points.length) {
+      const cUnit = unitLabel(g.cooling.quantity, u)
+      out.push({
+        name: 'Cooling time',
+        rows: [
+          ['Cooling time (s)', withUnit(g.cooling.label || 'Measurement', cUnit)],
+          ...r.points.map((p): Cell[] => [clean(p.time), clean(toDisplay(p.value, g.cooling!.quantity, u))]),
+        ],
+      })
+    }
+  }
+
+  if (g.window && !g.window.skipped) {
+    const r = processWindow(g.window)
+    const all = [...r.good.map((x) => ({ ...x, outcome: 'good' })), ...r.bad]
+    if (all.length) {
+      const tempLabel = g.window.temperature === 'melt' ? 'Melt temperature' : 'Mold temperature'
+      out.push({
+        name: 'Process window',
+        rows: [
+          [withUnit(tempLabel, tUnit), withUnit('Hold pressure', pUnit), 'Outcome'],
+          ...all.map((p): Cell[] => [clean(toDisplay(p.temp, 'temperature', u)), clean(toDisplay(p.hold, 'pressure', u)), p.outcome]),
+        ],
+      })
+    }
+  }
+
+  return out
+}
+
 export function workbook(study: Study): Sheet[] {
   const settings = settingsSheet(study)
+  const doe = doeEnabled(study)
   return [
-    { name: 'Runs', rows: runTable(study) },
-    { name: 'Factors', rows: factorTable(study) },
+    ...(doe && study.runs.length ? [{ name: 'Runs', rows: runTable(study) }] : []),
+    ...(doe && study.factors.length ? [{ name: 'Factors', rows: factorTable(study) }] : []),
     ...(settings.length ? [{ name: 'Process settings', rows: settings }] : []),
+    ...guideSheets(study),
   ]
 }
 
-/** RFC 4180 CSV with a byte-order mark so Excel reads °C and other symbols correctly. */
+/** RFC 4180 CSV with a byte-order mark so Excel reads °F and other symbols correctly. */
 export function toCsv(rows: Cell[][]): string {
   const field = (v: Cell) => {
     if (v === null) return ''

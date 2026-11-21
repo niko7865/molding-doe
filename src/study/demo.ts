@@ -86,7 +86,7 @@ const DEMO_GUIDE: Study['guide'] = {
   },
   window: {
     temperature: 'melt',
-    settings: Object.fromEntries(Object.entries(setup({})).filter(([k]) => k !== 'melt')),
+    settings: Object.fromEntries(Object.entries(setup({})).filter(([k]) => !['melt', 'nozzle', 'barrelFront', 'barrelRear'].includes(k))),
     customSettings: [{ id: 'demo-hot-runner', name: 'Hot runner tip', quantity: 'temperature', value: degF(470) }],
     rows: [
       [430, 6000, 'short'],
@@ -159,8 +159,8 @@ export function demoStudy(now = new Date()): Study {
   }
   s = applyDesign(s, draft, previewDesign(s, draft, now), now)
   const round = (v: number, step: number) => Math.round(v / step) * step
-  // Each stage ran on a different day; the later ones came out slightly heavier.
-  const dayShift = (r: Run) => ((r.stage ?? 1) - 1) * 0.02
+  // Each stage ran on a different day; the later ones came out slightly heavier (centered around 0).
+  const dayShift = (r: Run) => ((r.stage ?? 1) - 2) * 0.02
   const measure = (r: Run): Run => {
     if (r.status !== 'pending') return r
     const x = r.coded!

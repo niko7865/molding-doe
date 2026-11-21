@@ -4,6 +4,7 @@ import { applyDesign, defaultDraft, previewDesign, type DesignDraft } from './de
 import { growthChoices, previewGrowth } from './growth'
 import { factorFromPreset } from './presets'
 import { createStudy, newId, type Run, type Study } from './schema'
+import { toDisplay } from './units'
 
 const noise = (i: number) => (((i * 7919) % 13) - 6) / 200
 
@@ -52,6 +53,20 @@ describe('fold-over', () => {
     const manual = { ...grown, analysis: { series: { 'y:value': { auto: false, terms: ['1,0,0,0,0', '0,1,0,0,0', '0,0,1,0,0', '0,0,0,1,0', '0,0,0,0,1'] } } } }
     expect(coef(manual, 'Melt temperature')).toBeCloseTo(1, 1)
   })
+
+  it('folds over an even-resolution fraction (2^(4-1), D=ABC) by flipping the generated factor', () => {
+    const res4Truth = (x: number[]) => 20 + 2 * x[0] + 1.5 * x[0] * x[3] - 1.2 * x[1] * x[2]
+    const res4 = fill(make(4, { type: 'fractional-factorial', generators: ['D=ABC'] }), res4Truth)
+    const g = previewGrowth(res4, { kind: 'foldover', centerPoints: 2, randomize: false, seed: 1 })
+    // Stage 1 + Stage 2 cover all 16 unique corners of the full 2^4 factorial and clear aliases.
+    const corners = new Set(g.study.runs.filter((r) => r.kind === 'factorial').map((r) => r.coded!.join()))
+    expect(corners.size).toBe(16)
+    expect(g.study.design!.type).toBe('full-factorial')
+    expect(g.study.design!.generators).toBeUndefined()
+    const grown = fill(g.study, res4Truth, (r) => r.status === 'pending')
+    expect(coef(grown, 'Melt temperature×Mold temperature')).toBeCloseTo(1.5, 1)
+    expect(coef(grown, 'Hold pressure×Hold time')).toBeCloseTo(-1.2, 1)
+  })
 })
 
 describe('axial points', () => {
@@ -75,17 +90,20 @@ describe('new region', () => {
   let s = fill(make(2, { type: 'central-composite', alpha: 'face-centered', centerPoints: 3 }), truth)
   s = { ...s, analysis: { series: {}, optimum: [0.5, -0.5], confirmation: { runs: 3, values: {} } } }
 
-  it('centers narrower ranges on the optimum and reuses the runs inside them', () => {
+  it('centers narrower ranges on the optimum in display units and reuses the runs inside them', () => {
     const before = s.factors.map((f) => [f.low, f.high])
     const g = previewGrowth(s, { kind: 'region', draft: { ...defaultDraft(2), type: 'full-factorial', centerPoints: 2 }, shrink: 0.5, centerPoints: 2, randomize: false, seed: 1 })
     const [melt, hold] = g.study.factors
-    // Melt 220–250 → center 242.5, half-range 7.5 → 235–250; hold 400–700 → center 475, half 75 → 400–550.
-    expect([melt.low, melt.high]).toEqual([235, 250])
-    expect([hold.low, hold.high]).toEqual([400, 550])
+    // Melt 428–482 °F → center 468.5 °F, half 13.5 °F → rounded in °F to 455–485 °F; hold → 6000–8000 psi.
+    expect(toDisplay(melt.low, 'temperature', s.units)).toBeCloseTo(455, 6)
+    expect(toDisplay(melt.high, 'temperature', s.units)).toBeCloseTo(485, 6)
+    expect(toDisplay(hold.low, 'pressure', s.units)).toBeCloseTo(6000, 6)
+    expect(toDisplay(hold.high, 'pressure', s.units)).toBeCloseTo(8000, 6)
     expect(before).not.toEqual([[melt.low, melt.high], [hold.low, hold.high]])
-    // Face-centered CCD points inside the new box: (0,-1), (1,-1), (1,0)… recoded to the new ranges.
+    // Earlier runs inside the new box are reused and reclassified so old centers off [0,0] aren't tagged as center.
     expect(g.reused + g.archived).toBe(s.runs.length)
     expect(g.reused).toBeGreaterThan(0)
+    expect(g.study.runs.filter((r) => !r.archived && r.kind === 'center').every((r) => r.coded!.every((v) => Math.abs(v) <= 1e-6))).toBe(true)
     expect(g.study.runs.filter((r) => !r.archived).every((r) => r.coded!.every((v) => Math.abs(v) <= 1 + 1e-9))).toBe(true)
     expect(g.study.analysis?.optimum).toBeUndefined()
     expect(g.added.every((r) => r.block === Math.max(...s.runs.map((x) => x.block ?? 1)) + 1)).toBe(true)

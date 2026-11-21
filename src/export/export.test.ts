@@ -36,13 +36,23 @@ describe('xlsx', () => {
     expect(crc32(new TextEncoder().encode('123456789'))).toBe(0xcbf43926)
   })
 
-  it('writes a zip with the workbook parts', () => {
-    const bytes = buildXlsx(workbook(demoStudy()))
+  it('writes a zip with the workbook parts and molding study sheets', () => {
+    const s = demoStudy()
+    const sheets = workbook(s)
+    expect(sheets.map((x) => x.name)).toContain('Viscosity curve')
+    expect(sheets.map((x) => x.name)).toContain('Process window')
+    const bytes = buildXlsx(sheets)
     const text = new TextDecoder().decode(bytes)
     expect(bytes[0]).toBe(0x50) // "PK"
     expect(bytes[1]).toBe(0x4b)
     for (const part of ['[Content_Types].xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', 'xl/styles.xml']) expect(text).toContain(part)
     expect(text).toContain('<sheet name="Runs"')
+    expect(text).toContain('<sheet name="Viscosity curve"')
     expect(text).toContain('Boss height cavity 1 (mm)')
+    // Also exports molding studies when the DOE stage is off.
+    const guideOnly = workbook({ ...s, doe: false })
+    expect(guideOnly.map((x) => x.name)).not.toContain('Runs')
+    expect(guideOnly.map((x) => x.name)).toContain('Viscosity curve')
+    expect(guideOnly.map((x) => x.name)).toContain('Process settings')
   })
 })

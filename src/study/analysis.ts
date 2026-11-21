@@ -1,6 +1,8 @@
 import {
   confirmationCheck,
+  contains,
   curvatureTest,
+  DEFAULT_ALPHA,
   factorialTerms,
   fitModel,
   fractionDefective,
@@ -160,12 +162,49 @@ export function analyzeSeries(study: Study, series: Series): SeriesAnalysis {
 
   const names = factorNames(study)
   const input: FitInput = { x: data.x, y: data.y, terms: candidates, blocks: data.blocks, factorNames: names }
+  const htc = (study.design?.factorIds ?? []).flatMap((id, j) => (study.factors.find((f) => f.id === id)?.hardToChange ? [j] : []))
   let reduction: Reduction | null = null
   let fit: Fit
+  let splitPlot: SplitPlotResult | null = null
+
   if (settings.auto) {
-    reduction = reduceModel(input)
-    fit = reduction.fit
-    warnings.push(...reduction.warnings)
+    // When a balanced split-plot analysis is available, reduce terms using stratum-specific p-values
+    // so whole-plot factors are judged against whole-plot error instead of subplot noise.
+    const spInit =
+      htc.length && data.wholePlots && !data.blocks
+        ? splitPlotAnalysis({ x: data.x, y: data.y, terms: candidates, wholePlots: data.wholePlots, hardToChange: htc, factorNames: names })
+        : null
+    if (spInit?.ok) {
+      const aliasedKeys = new Set(spInit.aliased.map(termKey))
+      let terms = spInit.fit.terms.filter((t) => !aliasedKeys.has(termKey(t)))
+      let spCur = spInit.aliased.length
+        ? splitPlotAnalysis({ x: data.x, y: data.y, terms, wholePlots: data.wholePlots!, hardToChange: htc, factorNames: names })
+        : spInit
+      if (spCur.ok) {
+        const steps: Reduction['steps'] = []
+        for (;;) {
+          const removable = spCur.rows.filter((row) => row.term && !terms.some((other) => contains(other, row.term!)))
+          const worst = removable.filter((r) => r.p !== null).sort((a, b) => b.p! - a.p!)[0]
+          if (!worst || worst.p! <= DEFAULT_ALPHA || terms.length <= 1) break
+          steps.push({ term: worst.source, p: worst.p, reason: `${worst.stratum === 'whole' ? 'whole-plot' : 'subplot'} p = ${worst.p!.toFixed(3)} > ${DEFAULT_ALPHA}` })
+          terms = terms.filter((t) => termKey(t) !== termKey(worst.term!))
+          const next = splitPlotAnalysis({ x: data.x, y: data.y, terms, wholePlots: data.wholePlots!, hardToChange: htc, factorNames: names })
+          if (!next.ok) break
+          spCur = next
+        }
+        splitPlot = spCur
+        fit = spCur.fit
+        reduction = { fit, terms: fit.terms, steps, method: 'backward', warnings: [] }
+      } else {
+        reduction = reduceModel(input)
+        fit = reduction.fit
+        warnings.push(...reduction.warnings)
+      }
+    } else {
+      reduction = reduceModel(input)
+      fit = reduction.fit
+      warnings.push(...reduction.warnings)
+    }
   } else {
     const keys = new Set(settings.terms ?? candidates.map(termKey))
     const terms = candidates.filter((t) => keys.has(termKey(t)))
@@ -175,12 +214,13 @@ export function analyzeSeries(study: Study, series: Series): SeriesAnalysis {
     warnings.push(`Not estimable separately (aliased): ${fit.aliased.map((t) => termName(t, names)).join(', ')}.`)
   }
 
-  const htc = (study.design?.factorIds ?? []).flatMap((id, j) => (study.factors.find((f) => f.id === id)?.hardToChange ? [j] : []))
-  let splitPlot: SplitPlotResult | null = null
-  if (htc.length && data.wholePlots) {
+  if (!splitPlot && htc.length && data.wholePlots) {
     splitPlot = data.blocks
       ? { ok: false, reason: 'Split-plot analysis with blocks is not supported; the tests below treat runs as fully randomized.' }
       : splitPlotAnalysis({ x: data.x, y: data.y, terms: fit.terms, wholePlots: data.wholePlots, hardToChange: htc, factorNames: names })
+  }
+  if (splitPlot?.ok && splitPlot.aliased.length > 0) {
+    warnings.push(`Confounded with whole plots (not estimable separately): ${splitPlot.aliased.map((t) => termName(t, names)).join(', ')}.`)
   }
 
   let curvature: CurvatureTest | null = null

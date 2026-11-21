@@ -55,4 +55,24 @@ describe('splitPlotAnalysis', () => {
     const r = splitPlotAnalysis({ x: x.slice(1), y: y.slice(1), terms, wholePlots: wholePlots.slice(1), hardToChange: [3] })
     expect(r.ok).toBe(false)
   })
+
+  it('supports default center points in their own whole plot', () => {
+    const withCenters = buildDesign(fullFactorialDesign(4), {
+      centerPoints: 3,
+      replicates: 1,
+      blocking: { kind: 'none' },
+      randomize: true,
+      seed: 3,
+      hardToChange: [3],
+    })
+    const xc = withCenters.runs.map((r) => r.coded)
+    const wp = withCenters.runs.map((r) => r.wholePlot!)
+    const yc = xc.map((r, i) => 50 + 3 * r[0] - 2 * r[1] + 1.5 * r[3] + (wpShift[wp[i]] ?? 0) + (noise[i % noise.length] ?? 0))
+    const r = splitPlotAnalysis({ x: xc, y: yc, terms, wholePlots: wp, hardToChange: [3] })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.wholePlotError.df).toBe(2)
+    expect(r.rows.find((row) => row.source === 'A')!.p!).toBeLessThan(0.001)
+    expect(r.rows.find((row) => row.source === 'D')!.p!).toBeGreaterThan(0.05)
+  })
 })

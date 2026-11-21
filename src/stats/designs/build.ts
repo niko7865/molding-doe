@@ -163,6 +163,7 @@ export function buildDesign(base: BaseDesign, options: BuildOptions): BuiltDesig
     const subplot = [...Array(k).keys()].filter((j) => !htc.includes(j))
     const subplotWord = subplot.reduce((w, j) => w | (1 << j), 0)
     const plots: (typeof inBlock)[] = []
+    let splitSubplot = false
     for (const g of groups.values()) {
       if (g.length < 4 || subplot.length === 0) {
         plots.push(g)
@@ -176,8 +177,15 @@ export function buildDesign(base: BaseDesign, options: BuildOptions): BuiltDesig
         const twoLevel = subplot.every((j) => Math.abs(r.coded[j]) === 1)
         halves[twoLevel ? (sign(r.coded, subplotWord) > 0 ? 0 : 1) : alt++ % 2].push(r)
       }
-      if (halves[0].length && halves[1].length) plots.push(...halves)
-      else plots.push(g)
+      if (halves[0].length && halves[1].length) {
+        plots.push(...halves)
+        if (g.some((r) => subplot.every((j) => Math.abs(r.coded[j]) === 1))) splitSubplot = true
+      } else {
+        plots.push(g)
+      }
+    }
+    if (splitSubplot && subplot.length === 2 && !warnings.some((w) => w.includes('confounded with whole plots'))) {
+      warnings.push(`Splitting each hard-to-change setting into two whole plots confounds the ${wordName(subplotWord)} interaction with whole plots.`)
     }
     for (const plot of options.randomize ? shuffle(plots, random) : plots) {
       wholePlot++

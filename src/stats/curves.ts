@@ -117,7 +117,11 @@ export function fitPowerDecay(xs: number[], ys: number[]): PowerDecayFit | null 
   // Scale x so x^(−m) stays near 1 whatever the speed units.
   const ref = Math.max(...xs)
   const f = fitSeparable(xs, ys, (m, x) => [1, (x / ref) ** -m], [0.02, 6], true)
-  return f && { ...f, floor: f.coef[0], k: f.coef[1] * ref ** f.theta, m: f.theta }
+  if (!f) return null
+  if (f.coef[0] >= 0) return { ...f, floor: f.coef[0], k: f.coef[1] * ref ** f.theta, m: f.theta }
+  // Viscosity cannot level off at a negative floor; constrain floor = 0.
+  const z = fitSeparable(xs, ys, (m, x) => [(x / ref) ** -m], [0.02, 6], true)
+  return z && { ...z, coef: [0, z.coef[0]], floor: 0, k: z.coef[0] * ref ** z.theta, m: z.theta }
 }
 
 /**

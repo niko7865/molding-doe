@@ -1,8 +1,9 @@
-import { buildDesign, fromCoded, toCoded, type AlphaKind, type BaseDesign, type DesignPoint } from '../stats'
+import { buildDesign, fromCoded, generatorWord, LETTERS, toCoded, wordLength, type AlphaKind, type BaseDesign, type DesignPoint } from '../stats'
 import { decode } from './analysis'
 import { baseDesignFor, designIsStale, emptyResults, type DesignDraft } from './design'
 import { checkMachineLimits, type LimitViolation } from './presets'
 import { newId, type DesignSpec, type Factor, type Run, type Study } from './schema'
+import { deltaToDisplay, fromDisplay, toDisplay, type Quantity, type UnitSystem } from './units'
 
 /**
  * Sequential growth: add a stage of runs to a design that has already been run, keeping the
@@ -157,14 +158,23 @@ function factorialCount(study: Study): number {
   return new Set(active(study).flatMap((r) => (r.kind === 'factorial' && r.coded ? [r.coded.join()] : []))).size
 }
 
-/** "Nice" bounds: rounded to two significant digits of the half-range. */
-function roundRange(center: number, half: number): [number, number] {
-  // Round the center and half-width to a step that reads well on the press, keeping the range symmetric.
-  const step = 10 ** Math.floor(Math.log10(half)) / 2
+/** "Nice" bounds: rounded to a readable step in the press's display units, keeping the range symmetric. */
+function roundRange(center: number, half: number, quantity: Quantity, units: UnitSystem): [number, number] {
+  const dispCenter = toDisplay(center, quantity, units)
+  const dispHalf = Math.abs(deltaToDisplay(half, quantity, units))
+  const step = dispHalf > 0 ? 10 ** Math.floor(Math.log10(dispHalf)) / 2 : 1
   const r = (v: number) => Number((Math.round(v / step) * step).toPrecision(12))
-  const c = r(center)
-  const h = Math.max(step, r(half))
-  return [Number((c - h).toPrecision(12)), Number((c + h).toPrecision(12))]
+  const c = r(dispCenter)
+  const h = Math.max(step, r(dispHalf))
+  return [fromDisplay(Number((c - h).toPrecision(12)), quantity, units), fromDisplay(Number((c + h).toPrecision(12)), quantity, units)]
+}
+
+/** Classifies a point's geometric role from its coded coordinates in the active region. */
+function pointKindFor(coded: number[]): Run['kind'] {
+  if (coded.every((v) => Math.abs(v) <= 1e-6)) return 'center'
+  if (coded.every((v) => Math.abs(Math.abs(v) - 1) <= 1e-6)) return 'factorial'
+  if (coded.filter((v) => Math.abs(v) > 1e-6).length === 1) return 'axial'
+  return 'edge'
 }
 
 export function previewGrowth(study: Study, opts: GrowthOptions, now = new Date()): GrowthPreview {
@@ -175,9 +185,20 @@ export function previewGrowth(study: Study, opts: GrowthOptions, now = new Date(
 
   if (opts.kind === 'foldover') {
     const base = baseDesignFor(d, k)
-    const points: DesignPoint[] = base.points.map((p) => ({ coded: p.coded.map((v) => -v || 0), kind: p.kind }))
+    // Flipping all signs leaves even-length defining words (e.g. I = ABCD in a Res IV fraction)
+    // unchanged, replicating the same runs. Flip the generated factor column(s) instead.
+    const generators = d.type === 'fractional-factorial' ? (d.generators ?? []) : []
+    const evenWordsOnly = generators.length > 0 && generators.map(generatorWord).every((w) => wordLength(w) % 2 === 0)
+    const flipCols = evenWordsOnly ? new Set(generators.map((g) => LETTERS.indexOf(g.split('=')[0].trim()))) : null
+    const points: DesignPoint[] = base.points.map((p) => ({
+      coded: p.coded.map((v, j) => ((flipCols === null || flipCols.has(j) ? -v : v) || 0)),
+      kind: p.kind,
+    }))
     const added = stageRuns(study, { ...base, points }, opts, now)
-    const next = withStage(study, 'foldover', added, {}, now)
+    // Folding over a half-fraction completes the full 2^k factorial with no remaining aliases.
+    const spec: Partial<DesignSpec> = d.type === 'fractional-factorial' && generators.length === 1 ? { type: 'full-factorial', generators: undefined } : {}
+    const note = flipCols ? `flipped ${generators.map((g) => g.split('=')[0].trim()).join(', ')}` : 'flipped all signs'
+    const next = withStage(study, 'foldover', added, spec, now, note)
     return { study: next, added, reused: 0, archived: 0, violations: violationsOf(study, added), warnings }
   }
 
@@ -207,13 +228,16 @@ export function previewGrowth(study: Study, opts: GrowthOptions, now = new Date(
   const center = decode(study, optimum)
   const factors = study.factors.map((f) => {
     if (!(f.id in center)) return f
-    const [low, high] = roundRange(center[f.id], ((f.high - f.low) / 2) * shrink)
+    const [low, high] = roundRange(center[f.id], ((f.high - f.low) / 2) * shrink, f.quantity, study.units)
     return { ...f, low, high }
   })
   const recoded: Study = {
     ...study,
     factors,
-    runs: study.runs.map((r) => ({ ...r, coded: d.factorIds.map((id) => toCoded(r.settings[id], factors.find((f) => f.id === id)!.low, factors.find((f) => f.id === id)!.high)) })),
+    runs: study.runs.map((r) => {
+      const coded = d.factorIds.map((id) => toCoded(r.settings[id], factors.find((f) => f.id === id)!.low, factors.find((f) => f.id === id)!.high))
+      return { ...r, coded }
+    }),
   }
   const regionBase = baseDesignFor(opts.draft, k)
   const reach = Math.max(1, ...regionBase.points.flatMap((p) => p.coded.map(Math.abs)))
@@ -225,7 +249,7 @@ export function previewGrowth(study: Study, opts: GrowthOptions, now = new Date(
     if (r.archived) return r
     if (covered(r.coded!)) {
       if (r.status === 'done') reused++
-      return r
+      return { ...r, kind: pointKindFor(r.coded!) }
     }
     archived++
     return { ...r, archived: true }

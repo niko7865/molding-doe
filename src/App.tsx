@@ -50,7 +50,7 @@ function App() {
         {active === 'intro' ? (
           <IntroPanel ws={ws} go={setActive} />
         ) : active === 'study' ? (
-          <StudyPanel ws={ws} />
+          <StudyPanel ws={ws} go={setActive} />
         ) : !ws.study ? (
           <section className="card">
             <h2>{section.label}</h2>
@@ -60,7 +60,7 @@ function App() {
         ) : section.doe && !doe ? (
           <DoeOffPanel ws={ws} />
         ) : active === 'guide' ? (
-          <GuidePanel ws={ws} study={ws.study} />
+          <GuidePanel ws={ws} study={ws.study} go={setActive} />
         ) : active === 'design' ? (
           <DesignPanel ws={ws} study={ws.study} />
         ) : active === 'run' ? (
