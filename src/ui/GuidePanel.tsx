@@ -175,27 +175,33 @@ function viscosityUnit(study: Study) {
   return `${unitLabel('pressure', study.units)}·s`
 }
 
-function ViscosityResultView({ study, xAxis = 'speed' }: { study: Study; xAxis?: 'speed' | 'shear' }) {
+function ViscosityResultView({ study }: { study: Study }) {
   const g = study.guide?.viscosity
   if (!g) return null
   const max = maxPressure(study)
   const r = viscosityCurve(g, max)
   if (r.points.length < 2) return <p className="muted">Enter at least three speeds to draw the curve.</p>
   const visc = (v: number) => toDisplay(v, 'pressure', study.units)
+  const byShear = r.xAxis === 'shear'
+  const xVal = (p: (typeof r.points)[number]) => (byShear ? p.shearRate : toDisplay(p.speed, 'speed', study.units))
   const limited = r.points.filter((p) => p.pressureLimited)
-  const limitedFrom = limited[0]?.speed
+  const limitedFrom = limited[0]
   const reliable = r.points.filter((p) => !p.pressureLimited)
   const fitPoints = reliable.length >= 3 ? reliable : r.points
-  const speeds = fitPoints.map((p) => p.speed)
+  const fitXs = fitPoints.map((p) => (byShear ? p.shearRate : p.speed))
   const fitted = r.basis === 'fit'
-  const byShear = xAxis === 'shear'
-  const flatPt = r.flatFrom !== null ? r.points.find((p) => p.speed >= r.flatFrom!) : undefined
+  const flatLabel =
+    r.flatFrom === null
+      ? ''
+      : byShear
+        ? `${fmt(r.flatFrom)} 1/s${r.flatSpeed !== null ? ` (about ${formatValue(r.flatSpeed, 'speed', study)})` : ''}`
+        : formatValue(r.flatFrom, 'speed', study)
   return (
     <>
       <ScatterChart
         title={byShear ? 'Relative viscosity vs effective shear rate' : 'Relative viscosity vs injection speed'}
         points={r.points.map((p) => ({
-          x: byShear ? p.shearRate : toDisplay(p.speed, 'speed', study.units),
+          x: xVal(p),
           y: visc(p.viscosity),
           label: p.pressureLimited ? 'Pressure-limited' : `${formatValue(p.speed, 'speed', study)} (${fmt(p.shearRate)} 1/s)`,
           highlight: true,
@@ -204,35 +210,42 @@ function ViscosityResultView({ study, xAxis = 'speed' }: { study: Study; xAxis?:
         xLabel={byShear ? 'Effective shear rate, 1 / fill time (1/s)' : `Injection speed (${unitLabel('speed', study.units)})`}
         yLabel={`Relative viscosity (${viscosityUnit(study)})`}
         legend={limited.length > 0 ? ['Usable', 'Pressure-limited'] : undefined}
-        connect={byShear || !r.fit}
-        curve={!byShear && r.fit ? sampleCurve(r.fit.predict, Math.min(...speeds), Math.max(...speeds)).map((p) => ({ x: toDisplay(p.x, 'speed', study.units), y: visc(p.y) })) : undefined}
+        connect={!r.fit}
+        curve={
+          r.fit
+            ? sampleCurve(r.fit.predict, Math.min(...fitXs), Math.max(...fitXs)).map((p) => ({
+                x: byShear ? p.x : toDisplay(p.x, 'speed', study.units),
+                y: visc(p.y),
+              }))
+            : undefined
+        }
         vline={
           r.flatFrom !== null
-            ? byShear
-              ? flatPt
-                ? { x: flatPt.shearRate, label: 'Levels off' }
-                : undefined
-              : { x: toDisplay(r.flatFrom, 'speed', study.units), label: 'Levels off' }
+            ? { x: byShear ? r.flatFrom : toDisplay(r.flatFrom, 'speed', study.units), label: 'Levels off' }
             : undefined
         }
       />
       <FitNote
         fit={r.fit}
         used={fitted}
-        model={r.fit ? `power law (exponent −${r.fit.m.toFixed(2)}) leveling toward ${fmt(visc(r.fit.floor))} ${viscosityUnit(study)}` : ''}
+        model={
+          r.fit
+            ? `power law in ${byShear ? 'shear rate' : 'injection speed'} (exponent −${r.fit.m.toFixed(2)}) leveling toward ${fmt(visc(r.fit.floor))} ${viscosityUnit(study)}`
+            : ''
+        }
       />
       <Suggestion>
         {r.flatFrom !== null
           ? fitted
-            ? `On the fitted curve, viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)}: a 50% faster speed changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
-            : `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)}: each faster step changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
+            ? `On the fitted curve, viscosity levels off from ${flatLabel}: a 50% ${byShear ? 'higher shear rate' : 'faster speed'} changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
+            : `Viscosity levels off from ${flatLabel}: each ${byShear ? 'higher shear-rate' : 'faster'} step changes it by less than ${pct(g.threshold ?? DEFAULT_FLAT_THRESHOLD)}. Choose an injection speed at or above this, as long as the part shows no burns, jetting or flash.`
           : r.points.length >= 3
             ? 'The curve has not leveled off yet. Add faster speeds if the press allows; otherwise use the fastest stable speed, and include injection speed as a factor if you run a DOE.'
             : 'Enter at least three speeds to find the flat region.'}
       </Suggestion>
       {limitedFrom !== undefined && (
         <Suggestion tone="warn">
-          From {formatValue(limitedFrom, 'speed', study)} the peak pressure is within 5% of the press maximum, so the press is pressure-limited there
+          From {byShear ? `${fmt(limitedFrom.shearRate)} 1/s (${formatValue(limitedFrom.speed, 'speed', study)})` : formatValue(limitedFrom.speed, 'speed', study)} the peak pressure is within 5% of the press maximum, so the press is pressure-limited there
           {reliable.length >= 3 ? ' and those points are excluded from the curve fit and level-off check.' : ' and the curve isn’t reliable.'}
         </Suggestion>
       )}
@@ -243,9 +256,11 @@ function ViscosityResultView({ study, xAxis = 'speed' }: { study: Study; xAxis?:
 function ViscosityStudy({ study, ws }: { study: Study; ws: Workspace }) {
   const g = study.guide?.viscosity ?? DEFAULTS.viscosity(study)
   const r = viscosityCurve(g, maxPressure(study))
-  const [xAxis, setXAxis] = useState<'speed' | 'shear'>('speed')
+  const xAxis = g.xAxis ?? 'speed'
+  const byShear = xAxis === 'shear'
   type Row = (typeof g.rows)[number]
   const set = (rows: Row[]) => patchGuide(ws, 'viscosity', DEFAULTS.viscosity(study), (x) => ({ ...x, rows }))
+  const setAxis = (axis: 'speed' | 'shear') => patchGuide(ws, 'viscosity', DEFAULTS.viscosity(study), (x) => ({ ...x, xAxis: axis === 'speed' ? undefined : 'shear' }))
   const byRow = (row: Row) => r.points.find((p) => p.speed === row.speed && p.fillTime === row.fillTime)
   return (
     <>
@@ -255,7 +270,7 @@ function ViscosityStudy({ study, ws }: { study: Study; ws: Workspace }) {
         value={g.threshold ?? DEFAULT_FLAT_THRESHOLD}
         units={study.units}
         onChange={(threshold) => patchGuide(ws, 'viscosity', DEFAULTS.viscosity(study), (x) => ({ ...x, threshold }))}
-        hint="Viscosity counts as leveled off once a +50% speed increase on the fitted curve (or each faster step without a fit) changes it by less than this. 10% is typical."
+        hint={`Viscosity counts as leveled off once a +50% ${byShear ? 'shear rate' : 'speed'} increase on the fitted curve (or each step without a fit) changes it by less than this. 10% is typical.`}
       />
       <RowsTable<Row>
         study={study}
@@ -278,19 +293,24 @@ function ViscosityStudy({ study, ws }: { study: Study; ws: Workspace }) {
       />
       <div className="row">
         <fieldset className="field">
-          <legend>Chart horizontal axis</legend>
+          <legend>Horizontal axis (X-axis)</legend>
           <div className="segmented">
-            <button className={xAxis === 'speed' ? 'active' : ''} aria-pressed={xAxis === 'speed'} onClick={() => setXAxis('speed')}>
+            <button className={xAxis === 'speed' ? 'active' : ''} aria-pressed={xAxis === 'speed'} onClick={() => setAxis('speed')}>
               Injection speed
             </button>
-            <button className={xAxis === 'shear' ? 'active' : ''} aria-pressed={xAxis === 'shear'} onClick={() => setXAxis('shear')}>
+            <button className={xAxis === 'shear' ? 'active' : ''} aria-pressed={xAxis === 'shear'} onClick={() => setAxis('shear')}>
               Effective shear rate (1/s)
             </button>
           </div>
         </fieldset>
       </div>
-      <FitToggle study={study} ws={ws} k="viscosity" hint="Fits viscosity = floor + k · speed^−m (with floor ≥ 0) and evaluates the level-off change over a fixed +50% speed step so row spacing or one noisy reading doesn’t move the result. Needs four usable speeds." />
-      <ViscosityResultView study={{ ...study, guide: { ...study.guide, viscosity: g } }} xAxis={xAxis} />
+      <FitToggle
+        study={study}
+        ws={ws}
+        k="viscosity"
+        hint={`Fits viscosity = floor + k · (${byShear ? '1/fill time' : 'speed'})^−m (with floor ≥ 0) and evaluates the level-off change over a fixed +50% step so row spacing or one noisy reading doesn’t move the result. Needs four usable points.`}
+      />
+      <ViscosityResultView study={{ ...study, guide: { ...study.guide, viscosity: g } }} />
     </>
   )
 }

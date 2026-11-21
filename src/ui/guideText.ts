@@ -12,9 +12,21 @@ export function guideSummary(study: Study, key: GuideKey): string {
   switch (key) {
     case 'viscosity': {
       const r = viscosityCurve(g!.viscosity!, maxPressure(study))
+      const byShear = r.xAxis === 'shear'
       const how = r.basis === 'fit' ? `, fitted curve, R² ${r.fit!.r2.toFixed(3)}` : ''
-      const stepDesc = r.basis === 'fit' ? `under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}% per +50% speed` : `steps under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}%`
-      return r.flatFrom !== null ? `Viscosity levels off from ${formatValue(r.flatFrom, 'speed', study)} (${stepDesc}${how}).` : 'Viscosity had not leveled off at the speeds tested.'
+      const stepDesc =
+        r.basis === 'fit'
+          ? `under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}% per +50% ${byShear ? 'shear rate' : 'speed'}`
+          : `steps under ${g!.viscosity!.threshold ?? DEFAULT_FLAT_THRESHOLD}%`
+      const where =
+        r.flatFrom === null
+          ? ''
+          : byShear
+            ? `${fmt(r.flatFrom)} 1/s${r.flatSpeed !== null ? ` (about ${formatValue(r.flatSpeed, 'speed', study)})` : ''}`
+            : formatValue(r.flatFrom, 'speed', study)
+      return r.flatFrom !== null
+        ? `Viscosity levels off from ${where} (${stepDesc}${how}).`
+        : `Viscosity had not leveled off at the ${byShear ? 'shear rates' : 'speeds'} tested.`
     }
     case 'balance': {
       const r = cavityBalance(g!.balance!, study.cavities)
