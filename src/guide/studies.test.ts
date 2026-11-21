@@ -68,6 +68,27 @@ describe('viscosity curve', () => {
     expect(r.points.map((p) => p.speed)).toEqual([20, 50])
     expect(r.flatFrom).toBeNull()
   })
+
+  it('fits and evaluates level-off against effective shear rate (1/fillTime) when xAxis is shear', () => {
+    // Exact power law in shear rate s = 1 / fillTime: viscosity = 500 + 240 · s^−1.2.
+    const fillTimes = [4, 2, 1, 0.67, 0.5, 0.4]
+    const speeds = [10, 20, 40, 60, 80, 100]
+    const rows = fillTimes.map((ft, i) => {
+      const s = 1 / ft
+      const visc = 500 + 240 * s ** -1.2
+      return { speed: speeds[i], fillTime: ft, pressure: visc / ft }
+    })
+    const r = viscosityCurve({ ratio: 1, xAxis: 'shear', rows })
+    expect(r.xAxis).toBe('shear')
+    expect(r.basis).toBe('fit')
+    expect(r.fit!.floor).toBeCloseTo(500, 3)
+    expect(r.fit!.m).toBeCloseTo(1.2, 4)
+    expect(r.fit!.r2).toBeCloseTo(1, 9)
+    expect(r.flatFrom).toBeCloseTo(1.3, 5)
+    // Interpolates the corresponding injection speed at the shear-rate level-off.
+    expect(r.flatSpeed).toBeGreaterThan(50)
+    expect(r.flatSpeed).toBeLessThan(60)
+  })
 })
 
 describe('cavity balance', () => {

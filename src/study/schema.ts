@@ -170,9 +170,16 @@ const fitFlag = { fit: z.boolean().optional() }
  * readings are multiplied by `ratio`, the intensification ratio (1 on presses that show plastic pressure).
  */
 export const guideSchema = z.object({
-  /** `threshold`: step-to-step viscosity change, in percent, below which the curve counts as level (default 10). */
+  /** `threshold`: viscosity change, in percent, below which the curve counts as level (default 10). `xAxis`: 'speed' (default) or 'shear' (1 / fill time). */
   viscosity: z
-    .object({ ...guideBase, ...fitFlag, ratio: z.number().positive(), threshold: z.number().positive().optional(), rows: z.array(z.object({ speed: num, fillTime: num, pressure: num })) })
+    .object({
+      ...guideBase,
+      ...fitFlag,
+      ratio: z.number().positive(),
+      threshold: z.number().positive().optional(),
+      xAxis: z.enum(['speed', 'shear']).optional(),
+      rows: z.array(z.object({ speed: num, fillTime: num, pressure: num })),
+    })
     .optional(),
   /** Fill-only part weights: one row per shot, one value per cavity. */
   /** `allowable`: allowable imbalance in percent (default 5). */
