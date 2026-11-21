@@ -36,43 +36,66 @@ export interface ViscosityPoint {
   pressureLimited?: boolean
 }
 
+export type ViscosityAxis = 'speed' | 'shear'
+
 export interface ViscosityResult {
   points: ViscosityPoint[]
-  /** Slowest speed from which viscosity changes by less than the threshold. */
+  /** Horizontal axis used for sorting, fitting, and level-off: injection speed or effective shear rate (1/s). */
+  xAxis: ViscosityAxis
+  /** Slowest speed (or lowest shear rate when xAxis === 'shear') from which viscosity changes by less than the threshold. */
   flatFrom: number | null
-  /** Viscosity = floor + k · speed^(−m), when fitting is on and at least four usable speeds are in. */
+  /** When xAxis === 'shear', the corresponding injection speed (mm/s) at `flatFrom`, interpolated from usable points. */
+  flatSpeed: number | null
+  /** Viscosity = floor + k · x^(−m), when fitting is on and at least four usable points are in. */
   fit: PowerDecayFit | null
   basis: ResultBasis
 }
 
-/** Standard relative speed multiplier (+50%) used on the fitted curve so row spacing does not move the result. */
+/** Standard relative x multiplier (+50%) used on the fitted curve so row spacing does not move the result. */
 export const FIT_SPEED_STEP = 1.5
 
-/** Slowest of `speeds` from which every further step changes `values` by less than `threshold` (and doesn't trend upward). */
-function levelsOffFrom(speeds: number[], values: number[], threshold: number): number | null {
-  if (speeds.length < 3) return null
+/** Slowest of `xs` from which every further step changes `values` by less than `threshold` (and doesn't trend upward). */
+function levelsOffFrom(xs: number[], values: number[], threshold: number): number | null {
+  if (xs.length < 3) return null
   if (values.at(-1)! > values[0]) return null
   let from: number | null = null
-  for (let i = speeds.length - 2; i >= 0; i--) {
+  for (let i = xs.length - 2; i >= 0; i--) {
     const drop = (values[i] - values[i + 1]) / values[i]
-    if (drop < threshold && drop > -threshold) from = speeds[i]
+    if (drop < threshold && drop > -threshold) from = xs[i]
     else break
   }
   return from
 }
 
 /**
- * Slowest speed in [minSpeed, maxSpeed] where increasing speed by FIT_SPEED_STEP (+50%) drops
- * fitted viscosity by less than `threshold`. Independent of how closely the user spaced speeds.
+ * Lowest x in [minX, maxX] where increasing x by FIT_SPEED_STEP (+50%) drops
+ * fitted viscosity by less than `threshold`. Independent of how closely the user spaced rows.
  */
-function fittedFlatFrom(fit: PowerDecayFit, minSpeed: number, maxSpeed: number, threshold: number): number | null {
+function fittedFlatFrom(fit: PowerDecayFit, minX: number, maxX: number, threshold: number): number | null {
   const c = 1 - FIT_SPEED_STEP ** -fit.m
-  if (threshold >= c) return minSpeed
+  if (threshold >= c) return minX
   if (!(fit.floor > 0)) return null
   const exact = ((fit.k * (c - threshold)) / (threshold * fit.floor)) ** (1 / fit.m)
-  if (!Number.isFinite(exact) || exact > maxSpeed) return null
-  const rounded = exact >= 10 ? Math.ceil(exact - 1e-9) : upToTenth(exact)
-  return Math.max(minSpeed, Math.min(maxSpeed, rounded))
+  if (!Number.isFinite(exact) || exact > maxX) return null
+  const rounded = exact >= 10 ? Math.ceil(exact - 1e-9) : exact >= 1 ? upToTenth(exact) : Math.ceil(exact * 100 - 1e-9) / 100
+  return Math.max(minX, Math.min(maxX, rounded))
+}
+
+/** Linearly interpolates injection speed at a target shear rate from sorted usable points. */
+function speedAtShear(points: ViscosityPoint[], shear: number): number | null {
+  if (!points.length) return null
+  if (shear <= points[0].shearRate) return points[0].speed
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]
+    const b = points[i]
+    if (shear <= b.shearRate) {
+      const span = b.shearRate - a.shearRate
+      if (!(span > 0)) return b.speed
+      const t = (shear - a.shearRate) / span
+      return a.speed + t * (b.speed - a.speed)
+    }
+  }
+  return points.at(-1)!.speed
 }
 
 /** Default viscosity change, in percent, below which the curve counts as level. */
@@ -80,31 +103,44 @@ export const DEFAULT_FLAT_THRESHOLD = 10
 
 export function viscosityCurve(v: NonNullable<Guide['viscosity']>, maxPressure?: number): ViscosityResult {
   const threshold = (v.threshold ?? DEFAULT_FLAT_THRESHOLD) / 100
+  const xAxis: ViscosityAxis = v.xAxis ?? 'speed'
+  const xOf = (p: { speed: number; shearRate: number }) => (xAxis === 'shear' ? p.shearRate : p.speed)
   const raw = v.rows
     .filter((r) => finite(r.speed) && finite(r.fillTime) && finite(r.pressure) && r.fillTime! > 0)
-    .map((r) => ({ speed: r.speed!, fillTime: r.fillTime!, pressure: r.pressure! * v.ratio }))
-    .sort((a, b) => a.speed - b.speed)
+    .map((r) => ({ speed: r.speed!, fillTime: r.fillTime!, shearRate: 1 / r.fillTime!, pressure: r.pressure! * v.ratio }))
+    .sort((a, b) => xOf(a) - xOf(b) || a.speed - b.speed)
   const points: ViscosityPoint[] = raw.map((r, i) => {
     const viscosity = r.pressure * r.fillTime
     const prev = i > 0 ? raw[i - 1].pressure * raw[i - 1].fillTime : null
     const pressureLimited = maxPressure !== undefined && r.pressure >= 0.95 * maxPressure
-    return { ...r, shearRate: 1 / r.fillTime, viscosity, drop: prev === null ? null : (prev - viscosity) / prev, pressureLimited }
+    return { ...r, viscosity, drop: prev === null ? null : (prev - viscosity) / prev, pressureLimited }
   })
   // Exclude pressure-limited points from the fit and level-off check when enough reliable points remain.
   const reliable = points.filter((p) => !p.pressureLimited)
   const active = reliable.length >= 3 ? reliable : points
-  const speeds = active.map((p) => p.speed)
-  const fit = v.fit === false || new Set(speeds).size < 4 ? null : fitPowerDecay(speeds, active.map((p) => p.viscosity))
-  // Shear thinning means viscosity falls with speed; anything else is not a curve to level off.
+  const xs = active.map(xOf)
+  const fit = v.fit === false || new Set(xs).size < 4 ? null : fitPowerDecay(xs, active.map((p) => p.viscosity))
+  // Shear thinning means viscosity falls with speed / shear rate; anything else is not a curve to level off.
   if (fit && fit.r2 >= MIN_FIT_R2 && fit.k > 0) {
+    const flatFrom = fittedFlatFrom(fit, xs[0], xs.at(-1)!, threshold)
     return {
-      points: points.map((p) => ({ ...p, fitted: fit.predict(p.speed) })),
-      flatFrom: fittedFlatFrom(fit, speeds[0], speeds.at(-1)!, threshold),
+      points: points.map((p) => ({ ...p, fitted: fit.predict(xOf(p)) })),
+      xAxis,
+      flatFrom,
+      flatSpeed: flatFrom === null ? null : xAxis === 'shear' ? speedAtShear(active, flatFrom) : flatFrom,
       fit,
       basis: 'fit',
     }
   }
-  return { points, flatFrom: levelsOffFrom(speeds, active.map((p) => p.viscosity), threshold), fit, basis: 'data' }
+  const flatFrom = levelsOffFrom(xs, active.map((p) => p.viscosity), threshold)
+  return {
+    points,
+    xAxis,
+    flatFrom,
+    flatSpeed: flatFrom === null ? null : xAxis === 'shear' ? speedAtShear(active, flatFrom) : flatFrom,
+    fit,
+    basis: 'data',
+  }
 }
 
 // 2. Cavity balance --------------------------------------------------------------------------
