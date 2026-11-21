@@ -23,10 +23,13 @@ describe('process settings', () => {
   })
 
   it('leave out what the process window varies', () => {
-    const s = withGuide({ window: { temperature: 'mold', rows: [] } })
-    expect(variedSettings(s, 'window')).toEqual(['hold', 'moldMoving', 'moldFixed'])
-    expect(variedSettings(s, 'gateSeal')).toEqual([])
-    expect(settingsCount(s, 'window')).toEqual({ filled: 0, total: 6 })
+    const moldWin = withGuide({ window: { temperature: 'mold', rows: [] } })
+    expect(variedSettings(moldWin, 'window')).toEqual(['hold', 'moldMoving', 'moldFixed'])
+    expect(variedSettings(moldWin, 'gateSeal')).toEqual([])
+    expect(settingsCount(moldWin, 'window')).toEqual({ filled: 0, total: 6 })
+    const meltWin = withGuide({ window: { temperature: 'melt', rows: [] } })
+    expect(variedSettings(meltWin, 'window')).toEqual(['hold', 'melt', 'nozzle', 'barrelFront', 'barrelRear'])
+    expect(settingsCount(meltWin, 'window')).toEqual({ filled: 0, total: 4 })
   })
 
   it('copy from the nearest earlier study that has some, minus varied ones', () => {

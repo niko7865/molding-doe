@@ -19,7 +19,7 @@ describe('viscosity curve', () => {
     expect(viscosityCurve({ ratio: 10, fit: false, threshold: 3, rows }).flatFrom).toBe(80)
   })
 
-  it('fits a leveling power law and applies the threshold to the fitted curve', () => {
+  it('fits a leveling power law and applies the threshold independently of row spacing', () => {
     // Exact curve: 500 + 20000 · speed^−1.2.
     const speeds = [10, 20, 40, 60, 80, 100]
     const rows = speeds.map((s) => ({ speed: s, fillTime: 1, pressure: 500 + 20000 * s ** -1.2 }))
@@ -28,9 +28,12 @@ describe('viscosity curve', () => {
     expect(r.fit!.floor).toBeCloseTo(500, 3)
     expect(r.fit!.m).toBeCloseTo(1.2, 4)
     expect(r.fit!.r2).toBeCloseTo(1, 9)
-    // Fitted steps: 40→60 is 13.6%, 60→80 is 8.0%, 80→100 is 5.3%.
-    expect(r.flatFrom).toBe(60)
-    expect(viscosityCurve({ ratio: 1, threshold: 6, rows }).flatFrom).toBe(80)
+    // On the fitted curve, +50% speed drops viscosity < 10% from 52 mm/s and < 6% from 89 mm/s.
+    expect(r.flatFrom).toBe(52)
+    expect(viscosityCurve({ ratio: 1, threshold: 6, rows }).flatFrom).toBe(89)
+    // Adding extra intermediate speeds does not move where the fitted curve levels off.
+    const dense = [10, 15, 20, 25, 30, 35, 40, 50, 60, 70, 80, 90, 100].map((s) => ({ speed: s, fillTime: 1, pressure: 500 + 20000 * s ** -1.2 }))
+    expect(viscosityCurve({ ratio: 1, rows: dense }).flatFrom).toBe(52)
   })
 
   it('smooths a noisy point that would stop the step rule', () => {
@@ -38,7 +41,26 @@ describe('viscosity curve', () => {
     const noise = [0, 0, 0, 0, 25, -25]
     const rows = speeds.map((s, i) => ({ speed: s, fillTime: 1, pressure: 500 + 20000 * s ** -1.2 + noise[i] }))
     expect(viscosityCurve({ ratio: 1, fit: false, rows }).flatFrom).toBeNull()
-    expect(viscosityCurve({ ratio: 1, rows }).flatFrom).toBe(60)
+    expect(viscosityCurve({ ratio: 1, rows }).flatFrom).toBe(53)
+  })
+
+  it('keeps the fitted viscosity floor non-negative and excludes pressure-limited points', () => {
+    // Linearly decreasing points would give a negative intercept in an unconstrained power-law fit.
+    const rows = [10, 20, 30, 40, 50].map((s) => ({ speed: s, fillTime: 1, pressure: 1000 - 15 * s }))
+    const r = viscosityCurve({ ratio: 1, rows })
+    expect(r.fit!.floor).toBeGreaterThanOrEqual(0)
+
+    // Pressure-limited final point (≥ 95% of press max 1000) is marked and excluded from the fit.
+    const capped = [
+      { speed: 10, fillTime: 4, pressure: 400 },
+      { speed: 20, fillTime: 2, pressure: 520 },
+      { speed: 40, fillTime: 1, pressure: 660 },
+      { speed: 60, fillTime: 0.67, pressure: 800 },
+      { speed: 100, fillTime: 0.6, pressure: 980 },
+    ]
+    const limited = viscosityCurve({ ratio: 1, rows: capped }, 1000)
+    expect(limited.points.at(-1)!.pressureLimited).toBe(true)
+    expect(limited.points.slice(0, -1).every((p) => !p.pressureLimited)).toBe(true)
   })
 
   it('ignores incomplete rows and sorts by speed', () => {
@@ -67,6 +89,14 @@ describe('pressure drop', () => {
     expect(r.segments.map((s) => s.drop)).toEqual([300, 500, 850])
     expect(r.usage).toBeCloseTo(1650 / 1800, 9)
     expect(r.verdict).toBe('limited')
+    expect(r.nonIncreasing).toBe(false)
+  })
+
+  it('flags non-increasing segment pressures and requires at least two segments for done status', () => {
+    const r = pressureDrop({ ratio: 1, rows: [{ segment: 'Nozzle', pressure: 500 }, { segment: 'Runner', pressure: 400 }] }, 1800)
+    expect(r.nonIncreasing).toBe(true)
+    expect(guideStatus({ pressureDrop: { ratio: 1, rows: [{ segment: 'Nozzle', pressure: 500 }] } }, 'pressureDrop', 1)).toBe('open')
+    expect(guideStatus({ pressureDrop: { ratio: 1, rows: [{ segment: 'Nozzle', pressure: 500 }, { segment: 'Runner', pressure: 900 }] } }, 'pressureDrop', 1)).toBe('done')
   })
 })
 
@@ -112,6 +142,12 @@ describe('gate seal', () => {
     expect(r.stillRising).toBe(true)
     expect(r.suggested).toBeNull()
   })
+
+  it('does not shift the seal time to the last row on slight downward scale noise', () => {
+    const r = gateSeal({ fit: false, rows: [1, 2, 3, 4].map((t, i) => ({ time: t, weight: [37.0, 38.0, 38.2, 38.1][i] })) })
+    expect(r.stillRising).toBe(false)
+    expect(r.sealTime).toBe(3)
+  })
 })
 
 describe('cooling time', () => {
@@ -141,6 +177,15 @@ describe('cooling time', () => {
     const exact = [5, 10, 15, 20, 25].map((t) => ({ time: t, value: 1.2 + 2 * Math.exp(-(t - 5) / 6) }))
     const r = coolingTime({ label: 'Warp', quantity: 'length', specHigh: 1.5, rows: exact })
     expect(r.shortest).toBe(Math.ceil((5 + 6 * Math.log(2 / 0.3)) * 10) / 10)
+    expect(r.unbracketed).toBe(false)
+  })
+
+  it('flags when every tested cooling time is already in spec (unbracketed)', () => {
+    const exact = [8, 10, 12, 14, 16, 18].map((t) => ({ time: t, value: 52.45 - 0.4 * Math.exp(-(t - 8) / 3) }))
+    // Rising curve with only an upper spec above the plateau never crosses the spec limit.
+    const r = coolingTime({ label: 'Boss', quantity: 'length', specHigh: 52.6, rows: exact })
+    expect(r.shortest).toBe(8)
+    expect(r.unbracketed).toBe(true)
   })
 })
 

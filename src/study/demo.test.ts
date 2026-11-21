@@ -12,6 +12,9 @@ describe('demo study', () => {
     expect(parseStudy(serializeStudy(s)).runs).toHaveLength(8 + 3 + 8 + 2 + 8 + 2)
     expect(s.design!.stages!.map((x) => x.kind)).toEqual(['initial', 'foldover', 'axial'])
     expect(s.design!.type).toBe('central-composite')
+    // Stage 1 + Stage 2 fold-over cover all 16 unique corners of the 2^4 factorial.
+    const corners = new Set(s.runs.filter((r) => r.kind === 'factorial').map((r) => r.coded!.join()))
+    expect(corners.size).toBe(16)
   })
 
   it('recovers the true effects on boss height', () => {

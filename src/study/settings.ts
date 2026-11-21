@@ -33,7 +33,7 @@ type GuideEntry = NonNullable<Guide[GuideKey]>
 export function variedSettings(study: Study, key: GuideKey): SettingKey[] {
   if (key !== 'window') return []
   const t = study.guide?.window?.temperature ?? 'melt'
-  return ['hold', ...(t === 'melt' ? (['melt'] as const) : (['moldMoving', 'moldFixed'] as const))]
+  return ['hold', ...(t === 'melt' ? (['melt', 'nozzle', 'barrelFront', 'barrelRear'] as const) : (['moldMoving', 'moldFixed'] as const))]
 }
 
 /** Number of settings filled in, out of those that can be (standard ones not varied, plus custom ones). */

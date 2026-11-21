@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
+import type { SectionId } from '../app/sections'
 import { syncResults } from '../study/design'
 import { FILE_EXTENSION } from '../study/file'
 import type { Conflict } from '../study/merge'
@@ -7,6 +8,7 @@ import { toDisplay, unitLabel, type Quantity } from '../study/units'
 import type { Workspace } from '../study/useWorkspace'
 import { MaterialCard } from './MaterialCard'
 import { NumberField } from './NumberField'
+import { studyTitle } from './settingsText'
 
 const ACCEPT = `${FILE_EXTENSION},.json,application/json`
 
@@ -114,6 +116,13 @@ const MACHINE_FIELDS: { key: keyof Omit<MachineProfile, 'name'>; label: string; 
 ]
 
 function conflictLabel(c: Conflict, study: Study): string {
+  if (c.field === 'guide') return `Molding study: ${studyTitle(c.studyKey)}`
+  if (c.field === 'confirmation') {
+    const [respId, stat] = c.seriesKey.split(':')
+    const resp = study.responses.find((r) => r.id === respId)?.name ?? c.seriesKey
+    const suffix = stat === 'mean' ? ' (cavity mean)' : stat === 'sd' ? ' (cavity SD)' : stat?.startsWith('c') ? ` (cavity ${stat.slice(1)})` : ''
+    return `Confirmation run ${c.runIndex + 1}, ${resp}${suffix}`
+  }
   const run = `Run ${c.runOrder}`
   if (c.field === 'result') {
     const response = study.responses.find((r) => r.id === c.responseId)?.name ?? c.responseId
@@ -124,6 +133,19 @@ function conflictLabel(c: Conflict, study: Study): string {
 }
 
 function conflictValue(c: Conflict, side: 'mine' | 'theirs', study: Study): string {
+  if (c.field === 'guide') {
+    const entry = c[side]
+    if (entry.skipped) return 'skipped'
+    const count = 'rows' in entry && Array.isArray(entry.rows) ? entry.rows.length : 0
+    return `${count} row${count === 1 ? '' : 's'}${entry.notes ? ', with notes' : ''}`
+  }
+  if (c.field === 'confirmation') {
+    const [respId] = c.seriesKey.split(':')
+    const resp = study.responses.find((r) => r.id === respId)
+    const q = resp?.kind === 'continuous' ? resp.quantity : 'none'
+    const unit = unitLabel(q, study.units)
+    return `${Number(toDisplay(c[side], q, study.units).toPrecision(6))}${unit ? ' ' + unit : ''}`
+  }
   const v = c[side]
   if (c.field !== 'result' || typeof v !== 'number') return String(v) || '(empty)'
   const q = study.responses.find((r) => r.id === c.responseId)?.quantity ?? 'none'
@@ -131,7 +153,7 @@ function conflictValue(c: Conflict, side: 'mine' | 'theirs', study: Study): stri
   return `${Number(toDisplay(v, q, study.units).toPrecision(6))}${unit ? ' ' + unit : ''}`
 }
 
-function StudyEditor({ ws, study }: { ws: Workspace; study: Study }) {
+function StudyEditor({ ws, study, go }: { ws: Workspace; study: Study; go?: (id: SectionId) => void }) {
   const set = (patch: Partial<Study>) => ws.update((s) => ({ ...s, ...patch }))
   const machine = study.machine
 
@@ -276,11 +298,18 @@ function StudyEditor({ ws, study }: { ws: Workspace; study: Study }) {
           )}
         </section>
       )}
+      {go && (
+        <div className="row">
+          <button className="btn primary" onClick={() => go('guide')}>
+            Next: Molding studies →
+          </button>
+        </div>
+      )}
     </>
   )
 }
 
-export function StudyPanel({ ws }: { ws: Workspace }) {
+export function StudyPanel({ ws, go }: { ws: Workspace; go?: (id: SectionId) => void }) {
   return (
     <>
       {ws.error && (
@@ -288,7 +317,7 @@ export function StudyPanel({ ws }: { ws: Workspace }) {
           {ws.error}
         </Banner>
       )}
-      {ws.study ? <StudyEditor ws={ws} study={ws.study} /> : <StartScreen ws={ws} />}
+      {ws.study ? <StudyEditor ws={ws} study={ws.study} go={go} /> : <StartScreen ws={ws} />}
     </>
   )
 }

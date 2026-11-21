@@ -66,4 +66,41 @@ describe('mergeStudies', () => {
   it('refuses to merge a different study', () => {
     expect(() => mergeStudies(makeTestStudy(), makeTestStudy())).toThrow(MergeError)
   })
+
+  it('merges scientific molding studies and confirmation runs, flagging differing entries as conflicts', () => {
+    const base = makeTestStudy()
+    const mine: Study = {
+      ...base,
+      guide: {
+        gateSeal: { rows: [{ time: 1, weight: 30 }, { time: 2, weight: 31 }, { time: 3, weight: 31 }] },
+      },
+      analysis: {
+        series: {},
+        optimum: [0, 0],
+        confirmation: { runs: 2, values: { 'weight:mean': [12.1, null] } },
+      },
+    }
+    const theirs: Study = {
+      ...base,
+      guide: {
+        viscosity: { ratio: 1, rows: [{ speed: 20, fillTime: 2, pressure: 500 }, { speed: 50, fillTime: 0.8, pressure: 700 }, { speed: 80, fillTime: 0.5, pressure: 900 }] },
+        gateSeal: { rows: [{ time: 1, weight: 30.2 }, { time: 2, weight: 31.1 }, { time: 3, weight: 31.1 }] },
+      },
+      analysis: {
+        series: {},
+        optimum: [0, 0],
+        confirmation: { runs: 2, values: { 'weight:mean': [12.3, 12.2] } },
+      },
+    }
+    const { merged, conflicts, filled } = mergeStudies(mine, theirs)
+    expect(filled).toBe(2) // viscosity study + 2nd confirmation run
+    expect(merged.guide?.viscosity?.rows).toHaveLength(3)
+    expect(merged.analysis?.confirmation?.values['weight:mean']).toEqual([12.1, 12.2])
+    expect(conflicts.map((c) => c.field)).toEqual(['guide', 'confirmation'])
+
+    let resolved = merged
+    for (const c of conflicts) resolved = resolveConflict(resolved, c, 'theirs')
+    expect(resolved.guide?.gateSeal?.rows[0].weight).toBe(30.2)
+    expect(resolved.analysis?.confirmation?.values['weight:mean']).toEqual([12.3, 12.2])
+  })
 })

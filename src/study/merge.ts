@@ -1,13 +1,17 @@
-import type { Run, Study } from './schema'
+import type { GuideKey } from '../guide/studies'
+import type { Guide, Run, Study } from './schema'
+import { GUIDE_ORDER } from './settings'
 
 /**
  * One field where the two copies disagree and neither side is empty.
- * `field` is a response id with a cavity index, or the run's status or notes.
+ * Covers DOE run fields, scientific molding studies, and confirmation run values.
  */
 export type Conflict =
   | { runId: string; runOrder: number; field: 'result'; responseId: string; cavity: number; mine: number; theirs: number }
   | { runId: string; runOrder: number; field: 'status'; mine: Run['status']; theirs: Run['status']; theirsAbortReason?: string }
   | { runId: string; runOrder: number; field: 'notes'; mine: string; theirs: string }
+  | { field: 'guide'; studyKey: GuideKey; mine: NonNullable<Guide[GuideKey]>; theirs: NonNullable<Guide[GuideKey]> }
+  | { field: 'confirmation'; seriesKey: string; runIndex: number; mine: number; theirs: number }
 
 export interface MergeResult {
   /** Mine with every non-conflicting value from theirs filled in. Conflicts keep my value until resolved. */
@@ -19,10 +23,36 @@ export interface MergeResult {
 
 export class MergeError extends Error {}
 
+function hasGuideData(entry: Guide[GuideKey] | undefined): boolean {
+  if (!entry) return false
+  if (entry.skipped) return true
+  if (entry.notes?.trim()) return true
+  if (entry.settings && Object.keys(entry.settings).length > 0) return true
+  if (entry.customSettings?.some((c) => c.value !== undefined)) return true
+  if ('rows' in entry && Array.isArray(entry.rows)) {
+    return entry.rows.some((r) => {
+      if (Array.isArray(r)) return r.some((v) => v !== null)
+      if ('weight' in r) return r.weight !== null
+      if ('value' in r) return r.value !== null
+      if ('pressure' in r) return r.pressure !== null
+      if ('temp' in r) return r.temp !== null || r.hold !== null
+      return false
+    })
+  }
+  return false
+}
+
+function sameOptimum(a: number[] | undefined, b: number[] | undefined): boolean {
+  if (!a && !b) return true
+  if (!a || !b || a.length !== b.length) return false
+  return a.every((v, i) => Math.abs(v - b[i]) <= 1e-9)
+}
+
 /**
  * Merges results recorded in another copy of the same study (typically the press tablet's)
- * into mine. Runs are matched by id. A value present on only one side is taken; values present
- * on both sides that differ become conflicts. The design itself (factors, settings) is never merged.
+ * into mine: DOE runs (matched by id), scientific molding studies, and confirmation runs.
+ * A value present on only one side is taken; values present on both sides that differ become
+ * conflicts. The design itself (factors, settings) is never merged.
  */
 export function mergeStudies(mine: Study, theirs: Study): MergeResult {
   if (mine.id !== theirs.id) {
@@ -79,12 +109,80 @@ export function mergeStudies(mine: Study, theirs: Study): MergeResult {
     return { ...run, results, status, abortReason, notes, updatedAt }
   })
 
-  return { merged: { ...mine, runs }, conflicts, filled }
+  // Merge scientific molding studies.
+  let guide = mine.guide
+  for (const key of GUIDE_ORDER) {
+    const myEntry = mine.guide?.[key]
+    const theirEntry = theirs.guide?.[key]
+    if (!hasGuideData(theirEntry)) continue
+    if (!hasGuideData(myEntry)) {
+      guide = { ...guide, [key]: theirEntry }
+      filled++
+    } else if (JSON.stringify(myEntry) !== JSON.stringify(theirEntry)) {
+      conflicts.push({ field: 'guide', studyKey: key, mine: myEntry!, theirs: theirEntry! })
+    }
+  }
+
+  // Merge confirmation run results when both copies share the same optimum (or mine has none yet).
+  let analysis = mine.analysis
+  const theirConf = theirs.analysis?.confirmation
+  if (theirConf && (sameOptimum(mine.analysis?.optimum, theirs.analysis?.optimum) || !mine.analysis?.optimum)) {
+    const myConf = mine.analysis?.confirmation
+    const nextValues: Record<string, (number | null)[]> = { ...(myConf?.values ?? {}) }
+    let confChanged = false
+    let maxRuns = Math.max(myConf?.runs ?? 0, theirConf.runs)
+    for (const [seriesKey, theirArr] of Object.entries(theirConf.values)) {
+      const myArr = nextValues[seriesKey] ?? []
+      const len = Math.max(myArr.length, theirArr.length)
+      const mergedArr: (number | null)[] = []
+      for (let i = 0; i < len; i++) {
+        const mv = myArr[i] ?? null
+        const tv = theirArr[i] ?? null
+        if (tv === null || tv === mv) {
+          mergedArr.push(mv)
+        } else if (mv === null) {
+          mergedArr.push(tv)
+          filled++
+          confChanged = true
+        } else {
+          mergedArr.push(mv)
+          conflicts.push({ field: 'confirmation', seriesKey, runIndex: i, mine: mv, theirs: tv })
+        }
+      }
+      if (mergedArr.some((v) => v !== null)) {
+        nextValues[seriesKey] = mergedArr
+        maxRuns = Math.max(maxRuns, mergedArr.length)
+      }
+    }
+    if (confChanged) {
+      analysis = {
+        series: mine.analysis?.series ?? theirs.analysis?.series ?? {},
+        optimum: mine.analysis?.optimum ?? theirs.analysis?.optimum,
+        confirmation: { runs: Math.max(1, maxRuns), values: nextValues },
+      }
+    }
+  }
+
+  return { merged: { ...mine, runs, guide, analysis }, conflicts, filled }
 }
 
 /** Applies the user's choice for one conflict. */
 export function resolveConflict(study: Study, conflict: Conflict, pick: 'mine' | 'theirs'): Study {
   if (pick === 'mine') return study
+  if (conflict.field === 'guide') {
+    return { ...study, guide: { ...study.guide, [conflict.studyKey]: conflict.theirs } }
+  }
+  if (conflict.field === 'confirmation') {
+    const a = study.analysis ?? { series: {} }
+    const conf = a.confirmation ?? { runs: conflict.runIndex + 1, values: {} }
+    const arr = [...(conf.values[conflict.seriesKey] ?? [])]
+    while (arr.length <= conflict.runIndex) arr.push(null)
+    arr[conflict.runIndex] = conflict.theirs
+    return {
+      ...study,
+      analysis: { ...a, confirmation: { runs: Math.max(conf.runs, arr.length), values: { ...conf.values, [conflict.seriesKey]: arr } } },
+    }
+  }
   return {
     ...study,
     runs: study.runs.map((run) => {

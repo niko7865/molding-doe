@@ -24,7 +24,7 @@ export interface ViscosityPoint {
   fillTime: number
   /** Plastic pressure, bar. */
   pressure: number
-  /** Proportional to 1 / fill time. */
+  /** Proportional to 1 / fill time (1/s). */
   shearRate: number
   /** Relative viscosity: plastic pressure × fill time (bar·s). */
   viscosity: number
@@ -32,32 +32,53 @@ export interface ViscosityPoint {
   drop: number | null
   /** Viscosity on the fitted curve at this speed. */
   fitted?: number
+  /** Peak pressure is within 5% of the press maximum, so the press could not hold speed. */
+  pressureLimited?: boolean
 }
 
 export interface ViscosityResult {
   points: ViscosityPoint[]
-  /** Slowest speed from which every further step changes viscosity by less than the threshold. */
+  /** Slowest speed from which viscosity changes by less than the threshold. */
   flatFrom: number | null
-  /** Viscosity = floor + k · speed^(−m), when fitting is on and at least four speeds are in. */
+  /** Viscosity = floor + k · speed^(−m), when fitting is on and at least four usable speeds are in. */
   fit: PowerDecayFit | null
   basis: ResultBasis
 }
 
-/** Slowest of `speeds` from which every further step changes `values` by less than `threshold`. */
+/** Standard relative speed multiplier (+50%) used on the fitted curve so row spacing does not move the result. */
+export const FIT_SPEED_STEP = 1.5
+
+/** Slowest of `speeds` from which every further step changes `values` by less than `threshold` (and doesn't trend upward). */
 function levelsOffFrom(speeds: number[], values: number[], threshold: number): number | null {
   if (speeds.length < 3) return null
+  if (values.at(-1)! > values[0]) return null
   let from: number | null = null
   for (let i = speeds.length - 2; i >= 0; i--) {
-    if (Math.abs((values[i] - values[i + 1]) / values[i]) < threshold) from = speeds[i]
+    const drop = (values[i] - values[i + 1]) / values[i]
+    if (drop < threshold && drop > -threshold) from = speeds[i]
     else break
   }
   return from
 }
 
-/** Default step-to-step viscosity change, in percent, below which the curve counts as level. */
+/**
+ * Slowest speed in [minSpeed, maxSpeed] where increasing speed by FIT_SPEED_STEP (+50%) drops
+ * fitted viscosity by less than `threshold`. Independent of how closely the user spaced speeds.
+ */
+function fittedFlatFrom(fit: PowerDecayFit, minSpeed: number, maxSpeed: number, threshold: number): number | null {
+  const c = 1 - FIT_SPEED_STEP ** -fit.m
+  if (threshold >= c) return minSpeed
+  if (!(fit.floor > 0)) return null
+  const exact = ((fit.k * (c - threshold)) / (threshold * fit.floor)) ** (1 / fit.m)
+  if (!Number.isFinite(exact) || exact > maxSpeed) return null
+  const rounded = exact >= 10 ? Math.ceil(exact - 1e-9) : upToTenth(exact)
+  return Math.max(minSpeed, Math.min(maxSpeed, rounded))
+}
+
+/** Default viscosity change, in percent, below which the curve counts as level. */
 export const DEFAULT_FLAT_THRESHOLD = 10
 
-export function viscosityCurve(v: NonNullable<Guide['viscosity']>): ViscosityResult {
+export function viscosityCurve(v: NonNullable<Guide['viscosity']>, maxPressure?: number): ViscosityResult {
   const threshold = (v.threshold ?? DEFAULT_FLAT_THRESHOLD) / 100
   const raw = v.rows
     .filter((r) => finite(r.speed) && finite(r.fillTime) && finite(r.pressure) && r.fillTime! > 0)
@@ -66,16 +87,24 @@ export function viscosityCurve(v: NonNullable<Guide['viscosity']>): ViscosityRes
   const points: ViscosityPoint[] = raw.map((r, i) => {
     const viscosity = r.pressure * r.fillTime
     const prev = i > 0 ? raw[i - 1].pressure * raw[i - 1].fillTime : null
-    return { ...r, shearRate: 1 / r.fillTime, viscosity, drop: prev === null ? null : (prev - viscosity) / prev }
+    const pressureLimited = maxPressure !== undefined && r.pressure >= 0.95 * maxPressure
+    return { ...r, shearRate: 1 / r.fillTime, viscosity, drop: prev === null ? null : (prev - viscosity) / prev, pressureLimited }
   })
-  const speeds = points.map((p) => p.speed)
-  const fit = v.fit === false || new Set(speeds).size < 4 ? null : fitPowerDecay(speeds, points.map((p) => p.viscosity))
+  // Exclude pressure-limited points from the fit and level-off check when enough reliable points remain.
+  const reliable = points.filter((p) => !p.pressureLimited)
+  const active = reliable.length >= 3 ? reliable : points
+  const speeds = active.map((p) => p.speed)
+  const fit = v.fit === false || new Set(speeds).size < 4 ? null : fitPowerDecay(speeds, active.map((p) => p.viscosity))
   // Shear thinning means viscosity falls with speed; anything else is not a curve to level off.
   if (fit && fit.r2 >= MIN_FIT_R2 && fit.k > 0) {
-    const fitted = speeds.map(fit.predict)
-    return { points: points.map((p, i) => ({ ...p, fitted: fitted[i] })), flatFrom: levelsOffFrom(speeds, fitted, threshold), fit, basis: 'fit' }
+    return {
+      points: points.map((p) => ({ ...p, fitted: fit.predict(p.speed) })),
+      flatFrom: fittedFlatFrom(fit, speeds[0], speeds.at(-1)!, threshold),
+      fit,
+      basis: 'fit',
+    }
   }
-  return { points, flatFrom: levelsOffFrom(speeds, points.map((p) => p.viscosity), threshold), fit, basis: 'data' }
+  return { points, flatFrom: levelsOffFrom(speeds, active.map((p) => p.viscosity), threshold), fit, basis: 'data' }
 }
 
 // 2. Cavity balance --------------------------------------------------------------------------
@@ -83,6 +112,8 @@ export function viscosityCurve(v: NonNullable<Guide['viscosity']>): ViscosityRes
 export interface BalanceResult {
   /** Mean fill-only weight per cavity (null where no shots were weighed). */
   means: (number | null)[]
+  /** Individual finite fill-only shot weights per cavity. */
+  shotsPerCavity: number[][]
   shots: number
   /** (heaviest − lightest) / heaviest × 100. */
   imbalance: number | null
@@ -91,16 +122,15 @@ export interface BalanceResult {
 }
 
 export function cavityBalance(b: NonNullable<Guide['balance']>, cavities: number): BalanceResult {
-  const means = Array.from({ length: cavities }, (_, c) => {
-    const v = b.rows.map((r) => r[c]).filter(finite)
-    return v.length ? v.reduce((a, x) => a + x, 0) / v.length : null
-  })
+  const shotsPerCavity = Array.from({ length: cavities }, (_, c) => b.rows.map((r) => r[c]).filter(finite))
+  const means = shotsPerCavity.map((v) => (v.length ? v.reduce((a, x) => a + x, 0) / v.length : null))
   const known = means.flatMap((m, c) => (m === null ? [] : [{ m, c }]))
-  if (known.length < 2) return { means, shots: 0, imbalance: null, heaviest: null, lightest: null }
+  if (known.length < 2) return { means, shotsPerCavity, shots: 0, imbalance: null, heaviest: null, lightest: null }
   const hi = known.reduce((a, x) => (x.m > a.m ? x : a))
   const lo = known.reduce((a, x) => (x.m < a.m ? x : a))
   return {
     means,
+    shotsPerCavity,
     shots: b.rows.filter((r) => r.some(finite)).length,
     imbalance: hi.m > 0 ? ((hi.m - lo.m) / hi.m) * 100 : null,
     heaviest: hi.c,
@@ -123,6 +153,8 @@ export interface PressureDropResult {
   /** Last segment's pressure as a fraction of the press maximum. */
   usage: number | null
   verdict: 'ok' | 'tight' | 'limited' | null
+  /** True when a later segment has a lower cumulative pressure than the one before it. */
+  nonIncreasing: boolean
 }
 
 export function pressureDrop(p: NonNullable<Guide['pressureDrop']>, maxPressure: number | undefined): PressureDropResult {
@@ -130,7 +162,8 @@ export function pressureDrop(p: NonNullable<Guide['pressureDrop']>, maxPressure:
   const segments = rows.map((r, i) => ({ ...r, drop: r.pressure - (i > 0 ? rows[i - 1].pressure : 0) }))
   const last = segments.at(-1)?.pressure
   const usage = last !== undefined && maxPressure ? last / maxPressure : null
-  return { segments, usage, verdict: usage === null ? null : usage >= 0.9 ? 'limited' : usage >= 0.8 ? 'tight' : 'ok' }
+  const nonIncreasing = segments.some((s, i) => i > 0 && s.drop < 0)
+  return { segments, usage, verdict: usage === null ? null : usage >= 0.9 ? 'limited' : usage >= 0.8 ? 'tight' : 'ok', nonIncreasing }
 }
 
 // 4. Gate seal -------------------------------------------------------------------------------
@@ -172,9 +205,12 @@ export function gateSeal(g: NonNullable<Guide['gateSeal']>): GateSealResult {
   }
   const max = Math.max(...points.map((p) => p.weight))
   const tol = max * fraction
-  let idx = points.length - 1
-  while (idx > 0 && points.slice(idx - 1).every((p) => p.weight >= max - tol)) idx--
   const n = points.length
+  // Anchor at the last point within tolerance of the maximum so slight downward noise at the end doesn't shift seal time.
+  let end = n - 1
+  while (end > 0 && points[end].weight < max - tol) end--
+  let idx = end
+  while (idx > 0 && points[idx - 1].weight >= max - tol) idx--
   const stillRising = idx === n - 1 && points[n - 1].weight - points[n - 2].weight > tol
   if (stillRising) return { points, ...none, stillRising, fit }
   const sealTime = points[idx].time
@@ -194,6 +230,8 @@ export interface CoolingResult {
   source: ResultBasis
   /** Shortest time the fit predicts beyond the longest time tested. */
   predicted: number | null
+  /** True when a spec is given and even the shortest cooling time tested was already inside spec. */
+  unbracketed: boolean
 }
 
 /** Settled once within this fraction of the change seen over the times tested. */
@@ -215,7 +253,7 @@ export function coolingTime(c: NonNullable<Guide['cooling']>): CoolingResult {
     .filter((r) => finite(r.time) && finite(r.value))
     .map((r) => ({ time: r.time!, value: r.value! }))
     .sort((a, b) => a.time - b.time)
-  if (points.length < 3) return { points, shortest: null, basis: null, fit: null, source: 'data', predicted: null }
+  if (points.length < 3) return { points, shortest: null, basis: null, fit: null, source: 'data', predicted: null, unbracketed: false }
   const hasSpec = c.specLow !== undefined || c.specHigh !== undefined
   const basis = hasSpec ? 'spec' : 'stable'
   const fit = c.fit === false || new Set(points.map((p) => p.time)).size < 4 ? null : fitPlateau(points.map((p) => p.time), points.map((p) => p.value))
@@ -223,9 +261,10 @@ export function coolingTime(c: NonNullable<Guide['cooling']>): CoolingResult {
     const exact = fittedShortest(fit, c, hasSpec)
     const t = exact === null ? null : upToTenth(exact)
     const last = points.at(-1)!.time
-    if (t === null) return { points, shortest: null, basis, fit, source: 'fit', predicted: null }
-    if (t > last) return { points, shortest: null, basis, fit, source: 'fit', predicted: t }
-    return { points, shortest: t, basis, fit, source: 'fit', predicted: null }
+    if (t === null) return { points, shortest: null, basis, fit, source: 'fit', predicted: null, unbracketed: false }
+    if (t > last) return { points, shortest: null, basis, fit, source: 'fit', predicted: t, unbracketed: false }
+    const unbracketed = hasSpec && exact !== null && exact <= points[0].time + 1e-9
+    return { points, shortest: t, basis, fit, source: 'fit', predicted: null, unbracketed }
   }
   const ok = hasSpec
     ? (v: number) => (c.specLow === undefined || v >= c.specLow) && (c.specHigh === undefined || v <= c.specHigh)
@@ -237,7 +276,8 @@ export function coolingTime(c: NonNullable<Guide['cooling']>): CoolingResult {
       })()
   let idx = points.length
   while (idx > 0 && ok(points[idx - 1].value)) idx--
-  return { points, shortest: idx < points.length ? points[idx].time : null, basis, fit, source: 'data', predicted: null }
+  const shortest = idx < points.length ? points[idx].time : null
+  return { points, shortest, basis, fit, source: 'data', predicted: null, unbracketed: hasSpec && idx === 0 }
 }
 
 // 6. Process window --------------------------------------------------------------------------
@@ -245,7 +285,7 @@ export function coolingTime(c: NonNullable<Guide['cooling']>): CoolingResult {
 export interface WindowResult {
   good: { temp: number; hold: number }[]
   bad: { temp: number; hold: number; outcome: string }[]
-  /** Box around the good settings, shrunk until no defective setting is inside: the process window, and a starting point for DOE ranges. */
+  /** Largest defect-free box of good settings: the process window, and a starting point for DOE ranges. */
   temp: [number, number] | null
   hold: [number, number] | null
   /** The box had to shrink to leave defects out. */
@@ -261,32 +301,41 @@ export function processWindow(w: Pick<NonNullable<Guide['window']>, 'rows'>): Wi
   const bad = rows.filter((r) => r.outcome !== 'good')
   const none = { good, bad, temp: null, hold: null, trimmed: false }
   if (good.length < 2) return none
-  let box: Box = {
-    temp: [Math.min(...good.map((g) => g.temp)), Math.max(...good.map((g) => g.temp))],
-    hold: [Math.min(...good.map((g) => g.hold)), Math.max(...good.map((g) => g.hold))],
+  const ts = [...new Set(good.map((g) => g.temp))].sort((a, b) => a - b)
+  const hs = [...new Set(good.map((g) => g.hold))].sort((a, b) => a - b)
+  if (ts.length < 2 || hs.length < 2) return none
+  const full: Box = { temp: [ts[0], ts.at(-1)!], hold: [hs[0], hs.at(-1)!] }
+  if (!bad.some((b) => inside(b, full))) return { good, bad, temp: full.temp, hold: full.hold, trimmed: false }
+
+  // Exact search over all defect-free rectangles spanned by good settings: maximizes enclosed good
+  // points, breaking ties by largest normalized area and then closeness to the good-point centroid.
+  const tSpan = full.temp[1] - full.temp[0]
+  const hSpan = full.hold[1] - full.hold[0]
+  const meanT = good.reduce((a, g) => a + g.temp, 0) / good.length
+  const meanH = good.reduce((a, g) => a + g.hold, 0) / good.length
+  let best: { box: Box; count: number; area: number; dist: number } | null = null
+  for (let i1 = 0; i1 < ts.length; i1++) {
+    for (let i2 = i1 + 1; i2 < ts.length; i2++) {
+      for (let j1 = 0; j1 < hs.length; j1++) {
+        for (let j2 = j1 + 1; j2 < hs.length; j2++) {
+          const box: Box = { temp: [ts[i1], ts[i2]], hold: [hs[j1], hs[j2]] }
+          if (bad.some((b) => inside(b, box))) continue
+          const count = good.filter((g) => inside(g, box)).length
+          const area = ((ts[i2] - ts[i1]) / tSpan) * ((hs[j2] - hs[j1]) / hSpan)
+          const dist = Math.hypot(((ts[i1] + ts[i2]) / 2 - meanT) / tSpan, ((hs[j1] + hs[j2]) / 2 - meanH) / hSpan)
+          if (
+            !best ||
+            count > best.count ||
+            (count === best.count && (area > best.area + 1e-9 || (Math.abs(area - best.area) <= 1e-9 && dist < best.dist - 1e-9)))
+          ) {
+            best = { box, count, area, dist }
+          }
+        }
+      }
+    }
   }
-  let trimmed = false
-  // Pull in the side that loses the fewest good settings until no defect is left inside.
-  for (let guard = 0; guard < 100; guard++) {
-    const b = bad.find((x) => inside(x, box))
-    if (!b) break
-    trimmed = true
-    const options: Box[] = []
-    const temps = good.map((g) => g.temp)
-    const holds = good.map((g) => g.hold)
-    const above = (v: number[], t: number) => v.filter((x) => x > t)
-    const below = (v: number[], t: number) => v.filter((x) => x < t)
-    if (above(temps, b.temp).length) options.push({ ...box, temp: [Math.min(...above(temps, b.temp)), box.temp[1]] })
-    if (below(temps, b.temp).length) options.push({ ...box, temp: [box.temp[0], Math.max(...below(temps, b.temp))] })
-    if (above(holds, b.hold).length) options.push({ ...box, hold: [Math.min(...above(holds, b.hold)), box.hold[1]] })
-    if (below(holds, b.hold).length) options.push({ ...box, hold: [box.hold[0], Math.max(...below(holds, b.hold))] })
-    const valid = options.filter((o) => o.temp[0] < o.temp[1] && o.hold[0] < o.hold[1])
-    if (!valid.length) return { ...none, trimmed }
-    const kept = (o: Box) => good.filter((g) => inside(g, o)).length
-    box = valid.reduce((a, o) => (kept(o) > kept(a) ? o : a))
-  }
-  if (box.temp[0] >= box.temp[1] || box.hold[0] >= box.hold[1]) return { ...none, trimmed }
-  return { good, bad, temp: box.temp, hold: box.hold, trimmed }
+  if (!best) return { ...none, trimmed: true }
+  return { good, bad, temp: best.box.temp, hold: best.box.hold, trimmed: true }
 }
 
 // Status -------------------------------------------------------------------------------------
@@ -301,11 +350,11 @@ export function guideStatus(guide: Guide | undefined, key: GuideKey, cavities: n
   if (g.skipped) return 'skipped'
   switch (key) {
     case 'viscosity':
-      return viscosityCurve(guide!.viscosity!).points.length >= 3 ? 'done' : 'open'
+      return viscosityCurve(guide!.viscosity!, maxPressure).points.length >= 3 ? 'done' : 'open'
     case 'balance':
       return cavityBalance(guide!.balance!, cavities).imbalance !== null ? 'done' : 'open'
     case 'pressureDrop':
-      return pressureDrop(guide!.pressureDrop!, maxPressure).segments.length >= 1 ? 'done' : 'open'
+      return pressureDrop(guide!.pressureDrop!, maxPressure).segments.length >= 2 ? 'done' : 'open'
     case 'gateSeal':
       return gateSeal(guide!.gateSeal!).points.length >= 3 ? 'done' : 'open'
     case 'cooling':

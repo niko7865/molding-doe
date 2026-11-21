@@ -5,6 +5,7 @@ import {
   halfNormalPoints,
   lenth,
   normalPoints,
+  splitPlotAnalysis,
   termKey,
   termName,
   tQuantile,
@@ -12,6 +13,7 @@ import {
   withHierarchy,
   type AnovaRow,
   type Fit,
+  type SplitPlotResult,
   type Term,
 } from '../stats'
 import {
@@ -156,14 +158,17 @@ export function AnovaTable({ fit }: { fit: Fit }) {
   )
 }
 
-export function CoefficientTable({ fit, twoLevel }: { fit: Fit; twoLevel: boolean }) {
+export function CoefficientTable({ fit, twoLevel, splitPlot }: { fit: Fit; twoLevel: boolean; splitPlot?: SplitPlotResult | null }) {
+  const sp = splitPlot?.ok ? splitPlot : null
+  const rows = sp ? sp.coefficients : fit.coefficients.map((c) => ({ ...c, stratum: null as 'whole' | 'sub' | null }))
   return (
     <div className="table-wrap">
       <table>
-        <caption>Coefficients (coded units)</caption>
+        <caption>{sp ? 'Coefficients (coded units, split-plot tests)' : 'Coefficients (coded units)'}</caption>
         <thead>
           <tr>
             <th>Term</th>
+            {sp && <th>Tested against</th>}
             {twoLevel && <th className="num">Effect</th>}
             <th className="num">Coefficient</th>
             <th className="num">SE</th>
@@ -172,9 +177,10 @@ export function CoefficientTable({ fit, twoLevel }: { fit: Fit; twoLevel: boolea
           </tr>
         </thead>
         <tbody>
-          {fit.coefficients.map((c) => (
+          {rows.map((c) => (
             <tr key={c.name} className={c.p !== null && c.p < 0.05 && c.term ? 'signif' : undefined}>
               <td>{c.name}</td>
+              {sp && <td>{c.stratum === 'whole' ? 'Whole plot' : c.stratum === 'sub' ? 'Subplot' : '–'}</td>}
               {twoLevel && <td className="num">{num(c.effect)}</td>}
               <td className="num">{fmt(c.estimate)}</td>
               <td className="num">{num(c.se)}</td>
@@ -194,11 +200,48 @@ export function EffectCharts({ a, study, names }: { a: SeriesAnalysis; study: St
     () => fitModel({ x: a.data.x, y: a.data.y, terms: a.candidates, blocks: a.data.blocks, factorNames: names }),
     [a, names],
   )
+  const fullSp = useMemo(() => {
+    if (!a.splitPlot?.ok || !a.data.wholePlots || a.data.blocks) return null
+    const htc = (study.design?.factorIds ?? []).flatMap((id, j) => (study.factors.find((f) => f.id === id)?.hardToChange ? [j] : []))
+    if (!htc.length) return null
+    const res = splitPlotAnalysis({ x: a.data.x, y: a.data.y, terms: a.candidates, wholePlots: a.data.wholePlots, hardToChange: htc, factorNames: names })
+    return res.ok ? res : null
+  }, [a, study, names])
+
   const active = new Set(a.fit.terms.map(termKey))
   const coefs = full.coefficients.filter((c) => c.term)
   const twoLevel = coefs.length > 0 && coefs.every((c) => c.effect !== null)
   const saturated = full.mse === null || full.dfError < 1
   if (!coefs.length) return null
+
+  if (fullSp) {
+    const spCoefs = fullSp.coefficients.filter((c) => c.term)
+    const subCrit = fullSp.subplotError.df > 0 ? tQuantile(0.975, fullSp.subplotError.df) : undefined
+    const wpCrit = fullSp.wholePlotError.df > 0 ? tQuantile(0.975, fullSp.wholePlotError.df) : undefined
+    return (
+      <>
+        <div className="charts">
+          <ParetoChart
+            title="Pareto of standardized effects (split-plot)"
+            items={spCoefs.map((c) => ({
+              label: `${c.name} (${c.stratum === 'whole' ? 'WP' : 'SP'})`,
+              value: Math.abs(c.t ?? 0),
+              detail: `${c.stratum === 'whole' ? 'Whole plot' : 'Subplot'}: t = ${num(c.t)}, p = ${p(c.p)}`,
+              active: active.has(termKey(c.term!)),
+            }))}
+            reference={subCrit}
+            referenceLabel={subCrit !== undefined ? `Subplot p = 0.05 (t ${fmt(subCrit)})` : undefined}
+            valueLabel="|t|"
+          />
+        </div>
+        {wpCrit !== undefined && (
+          <p className="muted small">
+            Whole-plot (WP) terms need |t| &gt; {fmt(wpCrit)} (DF {fullSp.wholePlotError.df}) for p &lt; 0.05; subplot (SP) terms use the dashed line (DF {fullSp.subplotError.df}).
+          </p>
+        )}
+      </>
+    )
+  }
 
   if (saturated && twoLevel) {
     const effects = coefs.map((c) => c.effect!)
@@ -270,8 +313,21 @@ export function FactorPlots({ a, study, forReport }: { a: SeriesAnalysis; study:
     xLabels: lowHigh(factors[ia]),
   }
 
-  const [axes, setAxes] = useState<[number, number]>([0, 1])
-  const [ax, ay] = axes[0] < k && axes[1] < k && axes[0] !== axes[1] ? axes : [0, 1]
+  const topAxes = useMemo((): [number, number] => {
+    if (k < 2) return [0, 1]
+    const scores = new Array(k).fill(0)
+    for (const c of a.fit.coefficients) {
+      if (!c.term) continue
+      const mag = c.t !== null ? Math.abs(c.t) : Math.abs(c.estimate)
+      c.term.forEach((p, j) => {
+        if (p > 0 && mag > scores[j]) scores[j] = mag
+      })
+    }
+    const order = [...Array(k).keys()].sort((i, j) => scores[j] - scores[i] || i - j)
+    return [order[0], order[1]]
+  }, [a.fit, k])
+  const [axes, setAxes] = useState<[number, number]>(topAxes)
+  const [ax, ay] = axes[0] < k && axes[1] < k && axes[0] !== axes[1] ? axes : topAxes
   const surfacePredict = (u: number, v: number) => a.fit.predict(at(ay, v, at(ax, u))).fit
   const optimum = study.analysis?.optimum
   const fmtAxis = (j: number) => (coded: number) => {
@@ -468,7 +524,7 @@ export function ModelSummary({ a, names, ws, study }: { a: SeriesAnalysis; names
               : 'No sign of curvature inside the range.'}
         </p>
       )}
-      <CoefficientTable fit={fit} twoLevel={twoLevel} />
+      <CoefficientTable fit={fit} twoLevel={twoLevel} splitPlot={sp} />
       <AnovaTable fit={fit} />
       {sp && !sp.ok && <p className="muted">{sp.reason}</p>}
       {sp?.ok && (
@@ -509,10 +565,18 @@ const GOALS = [
   { kind: 'target', label: 'Target' },
 ] as const
 
+function goalError(goal: NonNullable<SeriesSettings['goal']>): string | null {
+  if (goal.kind === 'none') return null
+  if (goal.low >= goal.high) return 'Low limit must be below high limit.'
+  if (goal.kind === 'target' && (goal.target < goal.low || goal.target > goal.high)) return 'Target must sit between low and high.'
+  return null
+}
+
 function GoalEditor({ study, ws, series }: { study: Study; ws: Workspace; series: Series }) {
   const s = settingsFor(study, series.key)
   const goal = s.goal ?? { kind: 'none' as const }
   const q = series.quantity
+  const invalid = goalError(goal)
   const setKind = (kind: (typeof GOALS)[number]['kind']) => {
     if (kind === 'none') return patchSeries(ws, series.key, { goal: { kind: 'none' } })
     // Start from the range that was actually observed, rounded outward to a readable step in display units.
@@ -580,24 +644,30 @@ function GoalEditor({ study, ws, series }: { study: Study; ws: Workspace; series
           </div>
         </div>
       )}
+      {invalid && <p className="warn small full">{invalid}</p>}
     </div>
   )
 }
 
 function OptimizeView({ study, ws }: { study: Study; ws: Workspace }) {
   const factors = designFactors(study)
+  const region = useMemo(() => designRegion(study), [study])
   const [hold, setHold] = useState<Record<string, number | undefined>>({})
   const [outcome, setOutcome] = useState<OptimizationOutcome | null>(null)
   const [error, setError] = useState<string | null>(null)
   const used = goalsInUse(study)
+  const invalidGoal = used.some(({ series }) => goalError(settingsFor(study, series.key).goal ?? { kind: 'none' }) !== null)
   const all = seriesList(study)
   const [showAll, setShowAll] = useState(false)
   const shown = showAll ? all : all.filter((s) => s.stat !== 'cavity')
 
+  const fixedCoded = factors.map((f) => (hold[f.id] === undefined ? null : toCoded(hold[f.id]!, f.low, f.high)))
+  const outsideSphere =
+    region.radius !== undefined && fixedCoded.reduce<number>((a, v) => a + (v === null ? 0 : v * v), 0) >= region.radius ** 2 - 1e-9
+
   const run = () => {
     try {
-      const fixed = factors.map((f) => (hold[f.id] === undefined ? null : toCoded(hold[f.id]!, f.low, f.high)))
-      setOutcome(optimizeStudy(study, fixed))
+      setOutcome(optimizeStudy(study, fixedCoded))
       setError(null)
     } catch (e) {
       setOutcome(null)
@@ -624,21 +694,34 @@ function OptimizeView({ study, ws }: { study: Study; ws: Workspace }) {
         <h2>Hold factors (optional)</h2>
         <p className="muted small">Fix a factor at a value, for example the shortest cooling time, and optimize the rest.</p>
         <div className="grid">
-          {factors.map((f) => (
-            <div key={f.id} className="field">
-              <label className="check">
-                <input type="checkbox" checked={hold[f.id] !== undefined} onChange={(e) => setHold({ ...hold, [f.id]: e.target.checked ? (f.low + f.high) / 2 : undefined })} />
-                Hold {f.name.toLowerCase()} fixed
-              </label>
-              {hold[f.id] !== undefined && <NumberField label={`${f.name} value`} value={hold[f.id]} quantity={f.quantity} units={study.units} onChange={(v) => setHold({ ...hold, [f.id]: v })} />}
-            </div>
-          ))}
+          {factors.map((f, j) => {
+            const coded = fixedCoded[j]
+            const outOfBounds = coded !== null && (coded < region.bounds[j][0] - 1e-6 || coded > region.bounds[j][1] + 1e-6)
+            return (
+              <div key={f.id} className="field">
+                <label className="check">
+                  <input type="checkbox" checked={hold[f.id] !== undefined} onChange={(e) => setHold({ ...hold, [f.id]: e.target.checked ? (f.low + f.high) / 2 : undefined })} />
+                  Hold {f.name.toLowerCase()} fixed
+                </label>
+                {hold[f.id] !== undefined && (
+                  <>
+                    <NumberField label={`${f.name} value`} value={hold[f.id]} quantity={f.quantity} units={study.units} onChange={(v) => setHold({ ...hold, [f.id]: v })} />
+                    {outOfBounds && <span className="warn small">Outside the tested range (extrapolating the model).</span>}
+                  </>
+                )}
+              </div>
+            )
+          })}
         </div>
+        {outsideSphere && (
+          <p className="warn small">Held settings sit on or outside the rotatable design sphere, leaving no room for the remaining factors to vary.</p>
+        )}
         <div className="row">
-          <button className="btn primary" disabled={!used.length} onClick={run}>
+          <button className="btn primary" disabled={!used.length || invalidGoal} onClick={run}>
             Find best settings
           </button>
           {!used.length && <span className="muted small">Set a goal for at least one response.</span>}
+          {invalidGoal && <span className="warn small">Fix the invalid goal limits above before optimizing.</span>}
         </div>
         {error && <p className="warn">{error}</p>}
       </section>
@@ -757,19 +840,49 @@ function ConfirmView({ study, ws }: { study: Study; ws: Workspace }) {
         <div className="row">
           <NumberField label="Number of confirmation runs" value={conf.runs} quantity="none" units={study.units} min={1} integer onChange={(v) => v !== undefined && v >= 1 && setConf({ runs: Math.min(20, Math.round(v)) })} />
         </div>
-        {used.map(({ series }) => (
-          <fieldset key={series.key} className="response">
-            <legend>
-              {series.label}
-              {series.kind === 'passfail' && <span className="muted small"> · fraction defective, 0 to 1</span>}
-            </legend>
-            <div className="grid">
-              {Array.from({ length: conf.runs }, (_, i) => (
-                <NumberField key={i} label={`Run ${i + 1}`} value={conf.values[series.key]?.[i] ?? undefined} quantity={series.quantity} units={study.units} onChange={(v) => setValue(series.key, i, v)} />
-              ))}
-            </div>
-          </fieldset>
-        ))}
+        {used.map(({ series }) => {
+          const resp = study.responses.find((r) => r.id === series.responseId)
+          const shots = series.kind === 'passfail' ? (resp?.shots ?? 1) : undefined
+          return (
+            <fieldset key={series.key} className="response">
+              <legend>
+                {series.label}
+                {series.kind === 'passfail' && <span className="muted small"> · defective shots out of {shots}</span>}
+                {series.stat === 'mean' && <span className="muted small"> · mean across {study.cavities} cavities per run</span>}
+                {series.stat === 'sd' && <span className="muted small"> · SD across {study.cavities} cavities per run</span>}
+              </legend>
+              <div className="grid">
+                {Array.from({ length: conf.runs }, (_, i) => {
+                  const stored = conf.values[series.key]?.[i]
+                  if (series.kind === 'passfail' && shots) {
+                    return (
+                      <NumberField
+                        key={i}
+                        label={`Run ${i + 1}`}
+                        value={stored === null || stored === undefined ? undefined : Math.round(stored * shots)}
+                        quantity="none"
+                        units={study.units}
+                        min={0}
+                        integer
+                        onChange={(v) => setValue(series.key, i, v === undefined ? undefined : Math.min(shots, Math.max(0, Math.round(v))) / shots)}
+                      />
+                    )
+                  }
+                  return (
+                    <NumberField
+                      key={i}
+                      label={`Run ${i + 1}`}
+                      value={stored ?? undefined}
+                      quantity={series.quantity}
+                      units={study.units}
+                      onChange={(v) => setValue(series.key, i, v)}
+                    />
+                  )
+                })}
+              </div>
+            </fieldset>
+          )
+        })}
       </section>
       <section className="card">
         <h2>Result</h2>

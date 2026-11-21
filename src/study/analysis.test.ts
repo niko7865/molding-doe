@@ -84,4 +84,44 @@ describe('analysis glue', () => {
     expect(c.check?.observedMean).toBeCloseTo(400 / 28.349523125, 6)
     expect(c.check?.inside).toBe(true)
   })
+
+  it('reduces a split-plot design using whole-plot error for hard-to-change factors', () => {
+    // 2^4 with mold_temp hard-to-change and default 3 center points.
+    let s: Study = {
+      ...createStudy('sp'),
+      cavities: 1,
+      factors: [
+        factorFromPreset('melt_temp'),
+        factorFromPreset('hold_pressure'),
+        factorFromPreset('hold_time'),
+        factorFromPreset('mold_temp'), // hardToChange: true
+      ],
+      responses: [{ id: 'y', name: 'Y', kind: 'continuous', quantity: 'none', perCavity: false }],
+    }
+    const draft = { ...defaultDraft(4), type: 'full-factorial' as const, centerPoints: 3, replicates: 1, seed: 3 }
+    s = applyDesign(s, draft, previewDesign(s, draft))
+    // Give the two whole plots at each mold-temp level opposite ±3 shifts so whole-plot noise swamps D.
+    const seenByLevel = new Map<number, number[]>()
+    for (const r of s.runs) {
+      const lv = r.coded![3]
+      const list = seenByLevel.get(lv) ?? []
+      if (!list.includes(r.wholePlot!)) list.push(r.wholePlot!)
+      seenByLevel.set(lv, list)
+    }
+    const wpShift = (r: (typeof s.runs)[number]) => {
+      const list = seenByLevel.get(r.coded![3]) ?? []
+      return list.length === 2 ? (list.indexOf(r.wholePlot!) === 0 ? 3 : -3) : 0
+    }
+    let centerIdx = 0
+    const centerNoise = [0.2, -0.2, 0]
+    s.runs = s.runs.map((r) => ({
+      ...r,
+      status: 'done',
+      results: { y: [50 + 3 * r.coded![0] - 2 * r.coded![1] + 0.8 * r.coded![3] + wpShift(r) + (r.kind === 'center' ? centerNoise[centerIdx++] : 0)] },
+    }))
+    const a = analyzeSeries(s, seriesList(s)[0])
+    expect(a.splitPlot?.ok).toBe(true)
+    // Mold temperature is swamped by whole-plot variation and removed by split-plot backward elimination.
+    expect(a.fit.coefficients.map((c) => c.name)).toEqual(['Intercept', 'Melt temperature', 'Hold pressure'])
+  })
 })
